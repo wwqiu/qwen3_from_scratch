@@ -6,6 +6,73 @@
       'primaryColor': '#fff',
       'primaryBorderColor': '#333',
       'lineColor': '#333',
+      'fontSize': '15px',
+      'fontFamily': 'arial'
+    }
+  }
+}%%
+
+graph TD
+    %% --- 样式定义 ---
+    classDef data fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000,rx:5,ry:5;
+    classDef model fill:#ffffff,stroke:#37474f,stroke-width:2px,color:#000,rx:5,ry:5;
+    classDef memory fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000;
+    classDef logic fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#000,rx:5,ry:5;
+
+    %% --- 主流程 ---
+    
+    %% 1. 输入处理
+    Input("用户输入 / Prompt"):::data --> Tokenizer["Tokenizer & Embedding<br/>(文本转向量)"]:::model
+    
+    %% 2. 核心模型黑盒
+    subgraph Model_Engine [大模型推理引擎 / Inference Engine]
+        direction TB
+        
+        %% 循环入口
+        LoopStart(( )) 
+        
+        %% KV Cache 侧挂 (使用圆柱体语法)
+        KVCache[("KV Cache<br/>记忆上下文")]:::memory
+        
+        %% 堆叠层
+        TransStack["Transformer Layers<br/>(堆叠 L 层神经网络)"]:::model
+        
+        %% 连接关系
+        LoopStart --> TransStack
+        
+        %% 【修复点】将出错的双向虚线改为标准的单向虚线连接
+        %% 含义：KV Cache 注入信息给 Transformer
+        KVCache -.-> TransStack
+    end
+
+    Tokenizer --> LoopStart
+
+    %% 3. 输出生成
+    TransStack --> Logits["LM Head<br/>(生成概率分布)"]:::model
+    Logits --> Sampler{"采样策略<br/>Sampling"}:::logic
+    
+    %% 4. 判定与循环
+    Sampler -->|Top-k / Top-p| NewToken(新 Token):::data
+    
+    NewToken --> IsEnd{"是结束符?<br/>EOS Token"}:::logic
+    
+    IsEnd -- No --> Append[追加到上下文]:::model
+    Append --> LoopStart
+    
+    IsEnd -- Yes --> FinalOutput(最终完整回复):::data
+
+    %% --- 样式微调 ---
+    linkStyle default stroke-width:2px;
+```
+
+```mermaid
+%%{
+  init: {
+    'theme': 'base',
+    'themeVariables': {
+      'primaryColor': '#fff',
+      'primaryBorderColor': '#333',
+      'lineColor': '#333',
       'fontSize': '14px',
       'fontFamily': 'arial'
     }
