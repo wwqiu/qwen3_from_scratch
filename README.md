@@ -1,31 +1,110 @@
-# 🎓 Qwen3-From-Scratch
+# Qwen3.cpp
 
-> **"What I cannot create, I do not understand." — Richard Feynman**
+Qwen3 语言模型的 C++ 实现教程项目（循序渐进，从基础到优化）
 
-## 📖 项目简介 (Introduction)
+## 📚 学习路线
 
-本项目旨在**从零开始（From Scratch）**实现 Qwen3 大语言模型的推理过程。
+本项目采用**分阶段**的方式，帮助你从零开始理解和实现 Transformer 模型：
 
-与 vLLM、HuggingFace Transformers 等工业级库不同，本仓库**完全不考虑性能优化**。
+### 🎯 第一阶段：基础实现（从这里开始）
+- 📖 [实现指南](IMPLEMENTATION_GUIDE.md) - 学习路线图
+- 📖 [基础架构](BASIC_ARCHITECTURE.md) - 不带优化的完整实现
+- 🎯 目标：理解 Transformer 原理
+- ✅ 特点：代码简单、易于调试
 
-**只关心一件事：代码是否足够简单，逻辑是否足够清晰。**
+### 🚀 第二阶段：性能优化
+- 📖 [KV Cache 优化](KVCACHE_ARCHITECTURE.md) - 加速 50 倍
+- 🎯 目标：提升推理性能
+- ⚡ 效果：O(N²) → O(N)
 
-如果你想知道当调用 `model.generate()` 时底层到底发生了什么，但被复杂的封装和性能优化代码劝退，那么这个项目就是为你准备的。
+## 快速开始
 
-## 🎯 核心目标 (Goals)
+### 1. 安装依赖
 
-1.  **去黑盒化**：拆解 Qwen3 的每一个组件（RMSNorm, RoPE, SwiGLU, GQA 等）。
-2.  **极致易读**：变量命名与论文公式对应，逻辑流线性化，尽量减少类继承和复杂的抽象。
-3.  **零依赖（理想情况下）**：除了 ‘Boost::Regex’用于字符串处理外，不使用任何第三方依赖。
+#### Ubuntu/Debian
 
-## 🛠️ 你将学到 (What You Will Learn)
+```bash
+sudo apt-get update
+sudo apt-get install build-essential cmake libboost-regex-dev
+```
 
-通过阅读本项目代码，你将直观地理解：
+### 2. 编译
 
-*   **Tokenizer**: 文本是如何变成数字 ID 的？
-*   **Embedding**: 数字 ID 是如何变成向量的？
-*   **RoPE (旋转位置编码)**: 它是如何通过旋转向量来实现位置信息的注入？
-*   **Attention (GQA)**: Qwen3 的 Grouped Query Attention 是如何计算的？KV Cache 是如何运作的？
-*   **FFN (SwiGLU)**: 激活函数层面的数学细节。
-*   **Sampling**: Top-k, Top-p (Nucleus), Temperature 采样策略的代码实现。
+#### 使用 Makefile
+
+```bash
+make
+```
+
+#### 使用 CMake
+
+```bash
+mkdir build
+cd build
+cmake ..
+make
+```
+
+### 3. 运行
+
+```bash
+./qwen3 [tokenizer.json] [model.safetensors]
+```
+
+## 项目结构
+
+```
+qwen3.cpp/
+├── 📖 文档
+│   ├── IMPLEMENTATION_GUIDE.md    # 学习路线图
+│   ├── BASIC_ARCHITECTURE.md      # 基础架构（无优化）
+│   └── KVCACHE_ARCHITECTURE.md    # KV Cache 优化
+├── 💻 代码
+│   ├── main.cpp                   # 主程序
+│   ├── tokenizer.h/cpp            # Tokenizer 实现
+│   ├── type.h                     # 基础数据结构
+│   └── nlohmann/                  # JSON 库
+└── 🔧 构建
+    ├── Makefile                   # Make 构建
+    └── CMakeLists.txt             # CMake 构建
+```
+
+## 核心特性
+
+- ✅ **BPE Tokenizer**：完整的 Byte-Pair Encoding 实现
+- 🚧 **Transformer**：多层 Transformer 架构（待实现）
+  - RMSNorm 归一化
+  - Multi-Head Attention (GQA)
+  - SwiGLU 激活函数
+  - RoPE 位置编码
+- 🚧 **KV Cache**：推理加速优化（待实现）
+- 🚧 **采样策略**：Temperature、Top-P（待实现）
+
+## 学习建议
+
+1. **先读文档**：[IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
+2. **理解基础**：[BASIC_ARCHITECTURE.md](BASIC_ARCHITECTURE.md)
+3. **动手实现**：按照文档逐步编写代码
+4. **测试验证**：确保每个模块正确
+5. **性能优化**：[KVCACHE_ARCHITECTURE.md](KVCACHE_ARCHITECTURE.md)
+
+## 依赖说明
+
+- **C++17**：标准库特性
+- **Boost.Regex**：正则表达式（预分词）
+- **nlohmann/json**：JSON 解析（已包含）
+
+## 清理
+
+```bash
+make clean
+```
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 许可
+
+MIT License
 
