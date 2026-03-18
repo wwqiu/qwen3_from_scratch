@@ -7,6 +7,7 @@
 #include "nlohmann/json.hpp"
 #include <codecvt>
 #include <locale>
+#include "tensor.h"
 
 namespace nlohmann {
     template <>
@@ -50,9 +51,4 @@ struct TokenizerConfig {
     std::vector<AddedToken> added_tokens;
     std::wstring pre_tokenizer_pattern;
     std::map<unsigned char, std::string> byte_encoder;
-};
-
-struct Tensor {
-    std::array<int, 4> shape;
-    uint8_t* data;
 };
