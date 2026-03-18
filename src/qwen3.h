@@ -265,7 +265,27 @@ public:
 class MLP {
 public:
     MLP(size_t hidden_size, size_t intermediate_size) {
+        up_proj_ = std::make_shared<LinearProjection>(intermediate_size, hidden_size);
+        down_proj_ = std::make_shared<LinearProjection>(hidden_size, intermediate_size);
+        gate_proj_ = std::make_shared<LinearProjection>(intermediate_size, hidden_size);
+    }
 
+    void Forward(const Tensor& input, Tensor& output) {
+        Tensor up = up_proj_->Forward(input);
+        Tensor gate = gate_proj_->Forward(input);
+        size_t seq_len = input.shape_[0];
+        for (size_t i = 0; i < seq_len; ++i) {
+            float* up_ptr = (float*)up.data_ + i * intermediate_size_;
+            float* gate_ptr = (float*)gate.data_ + i * intermediate_size_;
+            for (size_t j = 0; j < intermediate_size_; ++j) {
+                up_ptr[j] = up_ptr[j] * Sigmoid(gate_ptr[j]);
+            }   
+        }
+        output = down_proj_->Forward(up);
+    }
+
+    float Sigmoid(float x) {
+        return 1.0f / (1.0f + std::exp(-x));
     }
 
     std::shared_ptr<LinearProjection> up_proj_;
@@ -283,14 +303,23 @@ public:
     {
     }
 
-    // Tensor Forward(const Tensor& input) {
-    //     // Implement the forward pass for the decoder layers
-    //     return input; // Placeholder
-    // }
+    Tensor Forward(const Tensor& input) {
+        Tensor residual = input.clone();
+        // attention
+        Tensor hidden_states = attention_->Forward(input);
+        hidden_states = residual + hidden_states;
+        residual = hidden_states.clone();
+        // mlp
+        post_attention_norm_->Forward(hidden_states, hidden_states);
+        mlp_->Forward(hidden_states, hidden_states);
+        hidden_states = residual + hidden_states;
+        return hidden_states;
+    }
 
     
     std::shared_ptr<Attention> attention_;
     std::shared_ptr<RMSNorm> post_attention_norm_;
+    std::shared_ptr<MLP> mlp_;
 
     size_t hidden_dim_;
     size_t num_heads_;

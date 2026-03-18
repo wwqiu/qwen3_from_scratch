@@ -9,9 +9,10 @@ using json = nlohmann::json;
 
 Tensor Qwen3Model::Forward(const std::vector<uint32_t>& token_ids) {
     Tensor hidden_state = embedding_->Forward(token_ids);
-    
-    return hidden_state; // Placeholder
-    
+    for (size_t i = 0; i < decoders_.size(); ++i) {
+        hidden_state = decoders_[i]->Forward(hidden_state);
+    }
+    return hidden_state;
 }
 
 bool Qwen3Model::Load(const std::string& model_path) {
@@ -47,6 +48,7 @@ bool Qwen3Model::Load(const std::string& model_path) {
         HeaderInfo& input_norm_info = headers_[std::string(layer_prefix) + ".input_layernorm.weight"];
         Decoder::Ptr decoder = std::make_shared<Decoder>(hidden_dim, num_kv_heads, num_heads, head_dim);
         LoadWeight(file, input_norm_info, decoder->input_norm_->weight_);
+        decoders_.push_back(decoder);
     }
 
     return true;
@@ -94,7 +96,6 @@ bool Qwen3Model::LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor&
         uint32_t float_bits = (uint32_t)bf16_val << 16;
         float_data[i] = *(float*)&float_bits;
     }
-    // LOG_INFO("Successfully loaded weight: %s", info.name.c_str());
     return true;
 }
 
