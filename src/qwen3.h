@@ -8,7 +8,7 @@ using json = nlohmann::json;
 struct HeaderInfo {
     std::string name;
     std::string dtype;
-    std::vector<int64_t> shape;
+    std::vector<size_t> shape;
     std::vector<uint64_t> data_offsets;
 
     std::string ToString() const {
@@ -141,7 +141,7 @@ public:
         q_proj_ = std::make_shared<LinearProjection>(hidden_dim_, num_heads_ * head_dim_);
         k_proj_ = std::make_shared<LinearProjection>(hidden_dim_, num_kv_heads_ * head_dim_);
         v_proj_ = std::make_shared<LinearProjection>(hidden_dim_, num_kv_heads_ * head_dim_);
-        output_proj_ = std::make_shared<LinearProjection>(hidden_dim_, hidden_dim_);
+        output_proj_ = std::make_shared<LinearProjection>(num_heads_ * head_dim_, hidden_dim_);
     }   
 
     
@@ -297,9 +297,9 @@ public:
 class MLP {
 public:
     MLP(size_t hidden_size, size_t intermediate_size) : intermediate_size_(intermediate_size) {
-        up_proj_ = std::make_shared<LinearProjection>(intermediate_size, hidden_size);
-        down_proj_ = std::make_shared<LinearProjection>(hidden_size, intermediate_size);
-        gate_proj_ = std::make_shared<LinearProjection>(intermediate_size, hidden_size);
+        up_proj_ = std::make_shared<LinearProjection>(hidden_size, intermediate_size);
+        down_proj_ = std::make_shared<LinearProjection>(intermediate_size, hidden_size);
+        gate_proj_ = std::make_shared<LinearProjection>(hidden_size, intermediate_size);
     }
 
    /**
@@ -351,10 +351,13 @@ class Decoder {
 public:
     using Ptr = std::shared_ptr<Decoder>;
 
-    Decoder(size_t hidden_dim, size_t num_kv_heads, size_t num_heads, size_t head_dim) : 
-                hidden_dim_(hidden_dim), num_kv_heads_(num_kv_heads), num_heads_(num_heads), head_dim_(head_dim) 
+    Decoder(size_t hidden_dim, size_t num_kv_heads, size_t num_heads, size_t head_dim, size_t intermediate_size) : 
+                hidden_dim_(hidden_dim), num_kv_heads_(num_kv_heads), num_heads_(num_heads), head_dim_(head_dim), intermediate_size_(intermediate_size)
     {
         input_norm_ = std::make_shared<RMSNorm>(hidden_dim_);
+        attention_ = std::make_shared<Attention>(hidden_dim_, num_kv_heads_, num_heads_, head_dim_);
+        post_attention_norm_ = std::make_shared<RMSNorm>(hidden_dim_);
+        mlp_ = std::make_shared<MLP>(hidden_dim_, intermediate_size_);
     }
 
     
@@ -403,6 +406,7 @@ public:
     size_t num_heads_;
     size_t num_kv_heads_;
     size_t head_dim_;
+    size_t intermediate_size_;
 };
 
 class Qwen3Model
