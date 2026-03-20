@@ -53,6 +53,24 @@ public:
         return copy;
     }
 
+    friend Tensor operator+(const Tensor& a, const Tensor& b) {
+        if (a.shape_ != b.shape_ || a.elem_size_ != b.elem_size_) {
+            throw std::invalid_argument("Tensors must have the same shape and element size for addition.");
+        }
+        Tensor result(a.shape_, a.elem_size_);
+        size_t total_size = a.elem_size_;
+        for (int64_t dim : a.shape_) {
+            total_size *= dim;
+        }
+        for (size_t i = 0; i < total_size / a.elem_size_; ++i) {
+            float* a_ptr = (float*)(a.data_ + i * a.elem_size_);
+            float* b_ptr = (float*)(b.data_ + i * b.elem_size_);
+            float* res_ptr = (float*)(result.data_ + i * result.elem_size_);
+            *res_ptr = *a_ptr + *b_ptr;
+        }
+        return result;
+    }
+
     std::vector<int64_t> shape_;
     uint8_t* data_;
     size_t elem_size_;

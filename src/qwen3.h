@@ -59,13 +59,15 @@ public:
         weight_ = Tensor({hidden_dim_}, sizeof(float));
     }
 
-    void Forward(const Tensor& input, Tensor& output) {
+    Tensor Forward(const Tensor& input) {
         float rms = 0.0f;
         float* input_data = (float*)input.data_;
 
         size_t seq_len = input.shape_[0];
         size_t dim = input.shape_[1];
         size_t num_head = dim / hidden_dim_;
+
+        Tensor output(input.shape_, sizeof(float));
 
         float* weight_data = (float*)weight_.data_;
         for (size_t i = 0; i < seq_len; ++i) {
@@ -88,6 +90,8 @@ public:
                 }
             }
         }
+
+        return output;
     }
 
     Tensor weight_;  // [hidden_dim]
@@ -132,7 +136,6 @@ class Attention {
 public:
     Attention(size_t hidden_dim, size_t num_kv_heads, size_t num_heads, size_t head_dim) 
         : hidden_dim_(hidden_dim), num_kv_heads_(num_kv_heads), num_heads_(num_heads), head_dim_(head_dim) {
-        input_norm_ = std::make_shared<RMSNorm>(hidden_dim_);
         q_norm_ = std::make_shared<RMSNorm>(head_dim_);
         k_norm_ = std::make_shared<RMSNorm>(head_dim_);
         q_proj_ = std::make_shared<LinearProjection>(hidden_dim_, num_heads_ * head_dim_);
@@ -141,26 +144,46 @@ public:
         output_proj_ = std::make_shared<LinearProjection>(hidden_dim_, hidden_dim_);
     }   
 
+    
+   /**
+    * @brief Attention forward pass with RoPE and causal masking
+    *
+    *            input
+    *              │
+    *    ┌─────────┼───────┐
+    *    ↓         ↓       ↓
+    *  Q-Proj    K-Proj  V-Proj
+    *    ↓         ↓       │
+    *  Q-Norm    K-Norm    │
+    *    ↓         ↓       │
+    *    └──RoPE───┘       │
+    *        ↓             ↓ 
+    *   ComputeAttention(Q, K, V)
+    *              ↓
+    *         Output-Proj
+    *              ↓
+    *            return
+    */
     Tensor Forward(const Tensor& input) {
-        Tensor normed_input(input.shape_, sizeof(float));
-
-        input_norm_->Forward(input, normed_input);
-
-        // [seq, hidden] -> [seq, heads, head_dim]
-        Tensor q = q_proj_->Forward(normed_input);
-        Tensor k = k_proj_->Forward(normed_input);
-        Tensor v = v_proj_->Forward(normed_input);
+        // q k v projection [seq, hidden] -> [seq, heads, head_dim]
+        Tensor q = q_proj_->Forward(input);
+        Tensor k = k_proj_->Forward(input);
+        Tensor v = v_proj_->Forward(input);
           
-        k_norm_->Forward(k, k);
-        q_norm_->Forward(q, q);
+        // q k norm
+        k = k_norm_->Forward(k);
+        q = q_norm_->Forward(q);
 
+        // RoPE
         ApplyRoPE(q, k);
 
-        Tensor attention_output = ComputeAttention(q, k, v, attention_output_);
+        // attention scores and weighted sum
+        Tensor attention_output = ComputeAttention(q, k, v);
 
-        Tensor output = output_proj_->Forward(attention_output);
+        // output projection
+        attention_output = output_proj_->Forward(attention_output);
 
-        return output;
+        return attention_output;
     }
 
     void ApplyRoPE(Tensor& q, Tensor& k) {
@@ -168,12 +191,14 @@ public:
         int half_dim = head_dim_ / 2;
         
         for (size_t i = 0; i < seq_lens; ++i) {
-             for (int d = 0; d < half_dim; ++d) {
+            // half spilt
+            for (int d = 0; d < half_dim; ++d) {
                 float freq = 1.0f / std::pow(rope_theta_, (float)(2 * d) / head_dim_);
                 float angle = i * freq;
                 float cos_val = std::cos(angle);
                 float sin_val = std::sin(angle);
 
+                // apply RoPE to q
                 for (size_t h = 0; h < num_heads_; ++h) {
                     float* head_ptr = (float*)q.data_ + i * num_heads_ * head_dim_ + h * head_dim_;
                     float x = head_ptr[d];
@@ -182,6 +207,7 @@ public:
                     head_ptr[d + half_dim] = x * sin_val + y * cos_val;
                 }
 
+                // apply RoPE to k
                 for (size_t h = 0; h < num_kv_heads_; ++h) {
                     float* head_ptr = (float*)k.data_ + i * num_kv_heads_ * head_dim_ + h * head_dim_;
                     float x = head_ptr[d];
@@ -193,14 +219,17 @@ public:
         }
     }
 
-    Tensor ComputeAttention(const Tensor& q, const Tensor& k, const Tensor& v, Tensor& output) {
+    Tensor ComputeAttention(const Tensor& q, const Tensor& k, const Tensor& v) {
         size_t seq_len = q.shape_[0];
         float scale = 1.0f / std::sqrt((float)head_dim_);
+        Tensor output({seq_len, num_heads_ * head_dim_}, sizeof(float));
         for (size_t h = 0; h < num_heads_; ++h) {
             size_t kv_h = h / (num_heads_ / num_kv_heads_);
             for (size_t i = 0; i < seq_len; ++i) {
+                // score = Q * K^T
                 std::vector<float> attention_scores(seq_len);
                 for (size_t j = 0; j < seq_len; ++j) {
+                    // causal mask is applied here by setting attention scores to -inf for j > i
                     if (j > i) { 
                         attention_scores[j] = -1e9; 
                         continue;
@@ -214,8 +243,10 @@ public:
                     }
                     attention_scores[j] = dot * scale;
                 }
+                
                 SoftMax(attention_scores.data(), seq_len);
 
+                // weighted sum: output = sum(attention_scores * V)
                 float* out_ptr = (float*)output.data_ + (i * num_heads_ + h) * head_dim_;
                 memset(out_ptr, 0, head_dim_ * sizeof(float));
                 for (size_t j = 0; j < seq_len; ++j) {
@@ -227,9 +258,11 @@ public:
                 }
             }
         }
+        return output;
     }
 
     void SoftMax(float* data, size_t len) {
+        // output = exp(x - max) / sum(exp(x - max))
         float max_val = *std::max_element(data, data + len);
         float sum = 0.0f;
         for (size_t i = 0; i < len; ++i) {
@@ -247,7 +280,6 @@ public:
     size_t head_dim_;
     float rope_theta_ = 100000.0f;
 
-    std::shared_ptr<RMSNorm> input_norm_;
     std::shared_ptr<RMSNorm> q_norm_;
     std::shared_ptr<RMSNorm> k_norm_;
     std::shared_ptr<LinearProjection> q_proj_;
@@ -264,12 +296,30 @@ public:
 
 class MLP {
 public:
-    MLP(size_t hidden_size, size_t intermediate_size) {
+    MLP(size_t hidden_size, size_t intermediate_size) : intermediate_size_(intermediate_size) {
         up_proj_ = std::make_shared<LinearProjection>(intermediate_size, hidden_size);
         down_proj_ = std::make_shared<LinearProjection>(hidden_size, intermediate_size);
         gate_proj_ = std::make_shared<LinearProjection>(intermediate_size, hidden_size);
     }
 
+   /**
+    * @brief MLP forward pass with gated activation
+    *
+    *      input
+    *        │
+    *  ┌─────┴──────┐
+    *  │            ↓
+    *  │         gate proj
+    *  │            ↓
+    *  │          SiLU (gate * sigmoid(gate))
+    *  ↓            ↓
+    * up proj ──→  (*) ─ (Element-wise Multiply)
+    *               │
+    *               ↓
+    *            down proj
+    *               ↓
+    *             output
+    */
     void Forward(const Tensor& input, Tensor& output) {
         Tensor up = up_proj_->Forward(input);
         Tensor gate = gate_proj_->Forward(input);
@@ -278,7 +328,8 @@ public:
             float* up_ptr = (float*)up.data_ + i * intermediate_size_;
             float* gate_ptr = (float*)gate.data_ + i * intermediate_size_;
             for (size_t j = 0; j < intermediate_size_; ++j) {
-                up_ptr[j] = up_ptr[j] * Sigmoid(gate_ptr[j]);
+                // SiLU activation: x * sigmoid(x)
+                up_ptr[j] =  (gate_ptr[j] * Sigmoid(gate_ptr[j])) * up_ptr[j];
             }   
         }
         output = down_proj_->Forward(up);
@@ -292,7 +343,9 @@ public:
     std::shared_ptr<LinearProjection> down_proj_;
     std::shared_ptr<LinearProjection> gate_proj_;
 
-}
+    size_t intermediate_size_;
+
+};
 
 class Decoder {
 public:
@@ -301,22 +354,47 @@ public:
     Decoder(size_t hidden_dim, size_t num_kv_heads, size_t num_heads, size_t head_dim) : 
                 hidden_dim_(hidden_dim), num_kv_heads_(num_kv_heads), num_heads_(num_heads), head_dim_(head_dim) 
     {
+        input_norm_ = std::make_shared<RMSNorm>(hidden_dim_);
     }
 
+    
+   /**
+    * @brief Decoder layer forward pass with attention and MLP
+    *      input
+    *        │
+    *  ┌─────┴──────┐
+    *  │            ↓
+    *  │         input norm
+    *  │            ↓
+    *  │         attention
+    *  │            ↓
+    *  └─→ residual add 1
+    *        │
+    *  ┌─────┴──────┐
+    *  │            ↓
+    *  │         post attention norm
+    *  │            ↓
+    *  │           MLP (Feed Forward)
+    *  │            ↓
+    *  └─→ residual add 2
+    *        ↓
+    *      output
+    */
     Tensor Forward(const Tensor& input) {
         Tensor residual = input.clone();
+        Tensor hidden_states = input_norm_->Forward(input);
         // attention
-        Tensor hidden_states = attention_->Forward(input);
+        hidden_states = attention_->Forward(hidden_states);
         hidden_states = residual + hidden_states;
         residual = hidden_states.clone();
         // mlp
-        post_attention_norm_->Forward(hidden_states, hidden_states);
+        hidden_states = post_attention_norm_->Forward(hidden_states);
         mlp_->Forward(hidden_states, hidden_states);
         hidden_states = residual + hidden_states;
         return hidden_states;
     }
 
-    
+    std::shared_ptr<RMSNorm> input_norm_;
     std::shared_ptr<Attention> attention_;
     std::shared_ptr<RMSNorm> post_attention_norm_;
     std::shared_ptr<MLP> mlp_;
