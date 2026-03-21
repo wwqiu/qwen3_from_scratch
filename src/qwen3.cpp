@@ -12,7 +12,11 @@ Tensor Qwen3Model::Forward(const std::vector<uint32_t>& token_ids) {
     for (size_t i = 0; i < decoders_.size(); ++i) {
         hidden_state = decoders_[i]->Forward(hidden_state);
     }
-    return hidden_state;
+    hidden_state = final_norms_->Forward(hidden_state);
+    Tensor logits = lm_head_->Forward(hidden_state);
+    softmax_->Forward(logits);    
+
+    return logits;
 }
 
 bool Qwen3Model::Load(const std::string& model_path) {
@@ -31,6 +35,10 @@ bool Qwen3Model::Load(const std::string& model_path) {
     size_t intermediate_size = config["intermediate_size"];
 
     std::ifstream file(model_path + "/model.safetensors", std::ios::binary);
+    // load output projection weight
+    lm_head_ = std::make_shared<LinearProjection>(hidden_dim, vocab_size);
+    LoadWeight(file, headers_["lm_head.weight"], lm_head_->weight_);
+
     // load embedding weight
     embedding_ = std::make_shared<Embedding>(vocab_size, hidden_dim);
     LoadWeight(file, headers_["model.embed_tokens.weight"], embedding_->weight_);
@@ -58,6 +66,11 @@ bool Qwen3Model::Load(const std::string& model_path) {
         LoadWeight(file, headers_[layer_prefix + ".mlp.up_proj.weight"], decoder->mlp_->up_proj_->weight_);
         decoders_.push_back(decoder);
     }
+
+    final_norms_ = std::make_shared<RMSNorm>(hidden_dim);
+    LoadWeight(file, headers_["model.norm.weight"], final_norms_->weight_);
+
+    softmax_ = std::make_shared<SoftMax>();
 
     return true;
 }

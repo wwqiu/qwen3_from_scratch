@@ -409,6 +409,49 @@ public:
     size_t intermediate_size_;
 };
 
+class Sampler {
+public:
+    Sampler() = default;
+
+    uint32_t Sample(const Tensor& logits) {
+        // For simplicity, we just return the token with the highest probability
+        size_t seq_len = logits.shape_[0];
+        size_t vocab_size = logits.shape_[1];
+        float* data = (float*)logits.data_ + (seq_len - 1) * vocab_size; // Get the last token's logits
+        uint32_t best_token = 0;
+        float max_prob = -std::numeric_limits<float>::infinity();
+        for (size_t i = 0; i < vocab_size; ++i) {
+            if (data[i] > max_prob) {
+                max_prob = data[i];
+                best_token = i;
+            }
+        }
+        return best_token;
+    }
+};
+
+class SoftMax {
+public:
+    // output = exp(x - max) / sum(exp(x - max))
+    void Forward(Tensor& input) {
+        size_t seq_len = input.shape_[0];
+        size_t dim = input.shape_[1];
+        for (size_t i = 0; i < seq_len; ++i) {
+            float* row_ptr = (float*)input.data_ + i * dim;
+            float max_val = *std::max_element(row_ptr, row_ptr + dim);
+            float sum = 0.0f;
+            for (size_t j = 0; j < dim; ++j) {
+                row_ptr[j] = std::exp(row_ptr[j] - max_val);
+                sum += row_ptr[j];
+            }
+            for (size_t j = 0; j < dim; ++j) {
+                row_ptr[j] /= sum;
+            }
+        }
+    }
+};
+
+
 class Qwen3Model
 {
     public:
@@ -429,6 +472,12 @@ class Qwen3Model
         Embedding::Ptr embedding_;
 
         std::vector<Decoder::Ptr> decoders_;
+
+        std::shared_ptr<RMSNorm> final_norms_;
+
+        std::shared_ptr<LinearProjection> lm_head_;
+
+        std::shared_ptr<SoftMax> softmax_;
 
         std::map<std::string, HeaderInfo> headers_;
 

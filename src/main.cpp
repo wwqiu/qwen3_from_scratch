@@ -52,13 +52,15 @@ int main(int argc, char* argv[]) {
 
     // Test tokenization
     std::vector<std::string> test_strings = {
-        // "hello",
-        "广州有哪些好玩的景点？",
-        // "Café",
-        // "Hello world"
+        "hello ",
+        "1+1=",
+        "广州最出名的地标是广州"
     };
 
     std::cout << "\n--- Tokenization Test ---" << std::endl;
+
+    Sampler sampler;
+
     for (const auto& input : test_strings) {
         std::cout << "Input: " << input << std::endl;
 
@@ -67,8 +69,10 @@ int main(int argc, char* argv[]) {
         Tensor tensor = model.Forward(ids);
 
         PrintTokenIds(ids);
-
-        //DumpTensor("output.txt", tensor);
+        
+        uint32_t sampled_token = sampler.Sample(tensor);
+        std::cout << "Sampled Token ID: " << sampled_token << std::endl;
+        std::cout << "Sampled Token Text: " << tokenizer.Decode({sampled_token}) << std::endl;
     }
 
     return 0;

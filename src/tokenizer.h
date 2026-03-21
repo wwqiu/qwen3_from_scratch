@@ -10,6 +10,8 @@ public:
     void LoadConfig(const std::string& config_file);
     std::vector<uint32_t> Encode(const std::string& text);
 
+    std::string Decode(const std::vector<uint32_t>& token_ids);
+
 private:
     TokenizerConfig config_;
 

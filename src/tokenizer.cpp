@@ -208,3 +208,67 @@ std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
     return ids;
 }
 
+std::string Tokenizer::Decode(const std::vector<uint32_t>& token_ids) {
+    std::string byte_level_text;
+    for (uint32_t id : token_ids) {
+        for (const auto& kv : config_.vocab) {
+            if (kv.second == id) {
+                byte_level_text += kv.first;
+                break;
+            }
+        }
+    }
+
+    static std::unordered_map<uint32_t, uint8_t> unicode_to_byte;
+    if (unicode_to_byte.empty()) {
+        int n = 0;
+        for (int b = 0; b < 256; ++b) {
+            bool is_direct = (b >= 33 && b <= 126) || 
+                             (b >= 161 && b <= 172) || 
+                             (b >= 174 && b <= 255);
+            if (is_direct) {
+                unicode_to_byte[b] = static_cast<uint8_t>(b);
+            } else {
+                unicode_to_byte[256 + n] = static_cast<uint8_t>(b);
+                n++;
+            }
+        }
+    }
+
+    std::string raw_bytes_text;
+    for (size_t i = 0; i < byte_level_text.size(); ) {
+        unsigned char c = byte_level_text[i];
+        uint32_t cp = 0;
+        int bytes = 0;
+        
+        if (c <= 0x7F) {
+            cp = c;
+            bytes = 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            cp = c & 0x1F;
+            bytes = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            cp = c & 0x0F;
+            bytes = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            cp = c & 0x07;
+            bytes = 4;
+        } else {
+            cp = c;
+            bytes = 1;
+        }
+
+        for (int j = 1; j < bytes && i + j < byte_level_text.size(); ++j) {
+            cp = (cp << 6) | (byte_level_text[i + j] & 0x3F);
+        }
+
+        if (unicode_to_byte.count(cp)) {
+            raw_bytes_text.push_back(static_cast<char>(unicode_to_byte[cp]));
+        }
+
+        i += bytes;
+    }
+
+    return raw_bytes_text;
+}
+
