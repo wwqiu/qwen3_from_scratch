@@ -51,11 +51,20 @@ make -j4
 qwen3_from_scratch/
 ├── src/
 │   ├── main.cpp          # 入口：加载模型、推理循环
-│   ├── qwen3.h/cpp       # 模型主体（Embedding/Decoder/Forward）
+│   ├── qwen3.h/cpp       # 模型主体
+│   ├── operator.hpp      # 算子实现（Attention/MLP/RMSNorm/Sampler 等）
 │   ├── tokenizer.h/cpp   # BPE Tokenizer + Decode
 │   ├── tensor.h          # Tensor 数据结构
 │   ├── type.h            # 基础类型定义
-│   └── utils.h / logger.h
-├── docs/                 # 架构文档
+│   └── logger.h          # 日志工具
+├── docs/
+│   ├── architecture.md   # 架构说明
+│   └── operators.md      # 算子说明
+├── thirdparty/
+│   └── nlohmann/         # JSON 解析库
 └── CMakeLists.txt
 ```
+
+## 架构文档
+- **[architecture.md](docs/architecture.md)** - 架构说明
+- **[operators.md](docs/operators.md)** - 算子说明

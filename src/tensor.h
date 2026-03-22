@@ -58,15 +58,16 @@ public:
             throw std::invalid_argument("Tensors must have the same shape and element size for addition.");
         }
         Tensor result(a.shape_, a.elem_size_);
-        size_t total_size = a.elem_size_;
-        for (int64_t dim : a.shape_) {
-            total_size *= dim;
+        size_t num_elements = 1;
+        for (size_t dim : a.shape_) {
+            num_elements *= dim;
         }
-        for (size_t i = 0; i < total_size / a.elem_size_; ++i) {
-            float* a_ptr = (float*)(a.data_ + i * a.elem_size_);
-            float* b_ptr = (float*)(b.data_ + i * b.elem_size_);
-            float* res_ptr = (float*)(result.data_ + i * result.elem_size_);
-            *res_ptr = *a_ptr + *b_ptr;
+
+        const float* a_data = (const float*)a.data_;
+        const float* b_data = (const float*)b.data_;
+        float* out_data = (float*)result.data_;
+        for (size_t i = 0; i < num_elements; ++i) {
+            out_data[i] = a_data[i] + b_data[i];
         }
         return result;
     }

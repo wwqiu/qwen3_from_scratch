@@ -2,6 +2,25 @@
 #include <vector>
 #include "tensor.h"
 
+/*
+ * ============================================================================
+ * Qwen3 算子实现
+ * ============================================================================
+ *
+ * 目录：
+ *   1. Embedding        - 词嵌入查表
+ *   2. RMSNorm          - RMS 归一化
+ *   3. LinearProjection - 线性投影（矩阵乘法）
+ *   4. Attention        - 多头注意力（含 RoPE 与因果掩码）
+ *   5. MLP              - 前馈网络（SwiGLU）
+ *   6. Decoder          - Transformer 解码层
+ *   7. SoftMax          - Softmax 激活
+ *   8. Sampler          - 贪心采样
+ */
+
+// ============================================================================
+// 1) Embedding
+// ============================================================================
 class Embedding {
 public:
     using Ptr = std::shared_ptr<Embedding>;
@@ -10,6 +29,21 @@ public:
         weight_ = Tensor({vocab_size_, hidden_dim_}, sizeof(float));
     }
 
+   /**
+    * @brief Embedding 查表
+    *
+    * token_ids: [seq_len]
+    * weight_:   [vocab_size, hidden_dim]
+    * output:    [seq_len, hidden_dim]
+    *
+    *   token_id[i]
+    *      |
+    *      v
+    * weight_[token_id[i], :]
+    *      |
+    *      v
+    * output[i, :]
+    */
     Tensor Forward(const std::vector<uint32_t>& token_ids) {
         Tensor output({token_ids.size(), hidden_dim_}, sizeof(float));
         for (size_t i = 0; i < token_ids.size(); ++i) {
@@ -27,12 +61,25 @@ public:
     size_t hidden_dim_;
 };
 
+// ============================================================================
+// 2) RMSNorm
+// ============================================================================
 class RMSNorm {
 public:
     RMSNorm(size_t hidden_dim) : hidden_dim_(hidden_dim) {
         weight_ = Tensor({hidden_dim_}, sizeof(float));
     }
 
+   /**
+    * @brief RMSNorm
+    *
+    * input:  [seq_len, dim]
+    * output: [seq_len, dim]
+    *
+    * 公式：
+    *   RMS(x) = sqrt(mean(x^2) + eps)
+    *   y      = x / RMS(x) * weight
+    */
     Tensor Forward(const Tensor& input) {
         float rms = 0.0f;
         float* input_data = (float*)input.data_;
@@ -75,12 +122,25 @@ public:
     size_t hidden_dim_;
 };
 
+// ============================================================================
+// 3) LinearProjection
+// ============================================================================
 class LinearProjection {
 public:
     LinearProjection(size_t input_dim, size_t output_dim) : input_dim_(input_dim), output_dim_(output_dim) {
         weight_ = Tensor({output_dim_, input_dim_}, sizeof(float));
     }
 
+   /**
+    * @brief 线性投影（无 bias）
+    *
+    * input:  [seq_len, input_dim]
+    * weight: [output_dim, input_dim]
+    * output: [seq_len, output_dim]
+    *
+    * 矩阵关系：
+    *   output = input * weight^T
+    */
     Tensor Forward(const Tensor& input) {
         size_t seq_len = input.shape_[0];
         Tensor output({seq_len, output_dim_}, sizeof(float));
@@ -105,7 +165,9 @@ public:
     size_t output_dim_;
 };
 
-
+// ============================================================================
+// 4) Attention
+// ============================================================================
 class Attention {
 public:
     Attention(size_t hidden_dim, size_t num_kv_heads, size_t num_heads, size_t head_dim) 
@@ -139,7 +201,9 @@ public:
     *            return
     */
     Tensor Forward(const Tensor& input) {
-        // q k v projection [seq, hidden] -> [seq, heads, head_dim]
+        // input: [seq_len, hidden_dim]
+        // q: [seq_len, num_heads * head_dim]
+        // k/v: [seq_len, num_kv_heads * head_dim]
         Tensor q = q_proj_->Forward(input);
         Tensor k = k_proj_->Forward(input);
         Tensor v = v_proj_->Forward(input);
@@ -160,6 +224,12 @@ public:
         return attention_output;
     }
 
+   /**
+    * RoPE 旋转公式（按每个 head 的前后半维度成对旋转）：
+    *   x' = x * cos(theta) - y * sin(theta)
+    *   y' = x * sin(theta) + y * cos(theta)
+    * 其中 theta = pos / rope_theta^(2d/head_dim)
+    */
     void ApplyRoPE(Tensor& q, Tensor& k) {
         size_t seq_lens = q.shape_[0];
         int half_dim = head_dim_ / 2;
@@ -193,6 +263,14 @@ public:
         }
     }
 
+   /**
+    * Attention(Q, K, V) = Softmax((QK^T) / sqrt(head_dim) + causal_mask) V
+    *
+    * q: [seq_len, num_heads * head_dim]
+    * k: [seq_len, num_kv_heads * head_dim]
+    * v: [seq_len, num_kv_heads * head_dim]
+    * output: [seq_len, num_heads * head_dim]
+    */
     Tensor ComputeAttention(const Tensor& q, const Tensor& k, const Tensor& v) {
         size_t seq_len = q.shape_[0];
         float scale = 1.0f / std::sqrt((float)head_dim_);
@@ -235,8 +313,8 @@ public:
         return output;
     }
 
+    // Softmax(x_i) = exp(x_i - max(x)) / sum_j exp(x_j - max(x))
     void SoftMax(float* data, size_t len) {
-        // output = exp(x - max) / sum(exp(x - max))
         float max_val = *std::max_element(data, data + len);
         float sum = 0.0f;
         for (size_t i = 0; i < len; ++i) {
@@ -268,6 +346,9 @@ public:
     
 };
 
+// ============================================================================
+// 5) MLP (SwiGLU)
+// ============================================================================
 class MLP {
 public:
     MLP(size_t hidden_size, size_t intermediate_size) : intermediate_size_(intermediate_size) {
@@ -295,6 +376,8 @@ public:
     *             output
     */
     void Forward(const Tensor& input, Tensor& output) {
+        // input: [seq_len, hidden_dim]
+        // up/gate: [seq_len, intermediate_size]
         Tensor up = up_proj_->Forward(input);
         Tensor gate = gate_proj_->Forward(input);
         size_t seq_len = input.shape_[0];
@@ -302,10 +385,11 @@ public:
             float* up_ptr = (float*)up.data_ + i * intermediate_size_;
             float* gate_ptr = (float*)gate.data_ + i * intermediate_size_;
             for (size_t j = 0; j < intermediate_size_; ++j) {
-                // SiLU activation: x * sigmoid(x)
+                // SiLU(x) = x * sigmoid(x)
                 up_ptr[j] =  (gate_ptr[j] * Sigmoid(gate_ptr[j])) * up_ptr[j];
             }   
         }
+        // output: [seq_len, hidden_dim]
         output = down_proj_->Forward(up);
     }
 
@@ -321,6 +405,9 @@ public:
 
 };
 
+// ============================================================================
+// 6) Decoder
+// ============================================================================
 class Decoder {
 public:
     using Ptr = std::shared_ptr<Decoder>;
@@ -358,15 +445,19 @@ public:
     *      output
     */
     Tensor Forward(const Tensor& input) {
+        // input: [seq_len, hidden_dim]
         Tensor residual = input.clone();
+        // hidden_states: [seq_len, hidden_dim]
         Tensor hidden_states = input_norm_->Forward(input);
         // attention
         hidden_states = attention_->Forward(hidden_states);
+        // residual add 1: [seq_len, hidden_dim] + [seq_len, hidden_dim]
         hidden_states = residual + hidden_states;
         residual = hidden_states.clone();
         // mlp
         hidden_states = post_attention_norm_->Forward(hidden_states);
         mlp_->Forward(hidden_states, hidden_states);
+        // residual add 2: [seq_len, hidden_dim] + [seq_len, hidden_dim]
         hidden_states = residual + hidden_states;
         return hidden_states;
     }
@@ -383,10 +474,12 @@ public:
     size_t intermediate_size_;
 };
 
-
+// ============================================================================
+// 7) SoftMax
+// ============================================================================
 class SoftMax {
 public:
-    // output = exp(x - max) / sum(exp(x - max))
+    // Softmax(x_i) = exp(x_i - max(x)) / sum_j exp(x_j - max(x))
     void Forward(Tensor& input) {
         size_t seq_len = input.shape_[0];
         size_t dim = input.shape_[1];
@@ -405,7 +498,9 @@ public:
     }
 };
 
-
+// ============================================================================
+// 8) Sampler
+// ============================================================================
 class Sampler {
 public:
     Sampler() = default;

@@ -7,13 +7,37 @@
 
 using json = nlohmann::json;
 
+namespace {
+std::vector<size_t> NormalizeShapeTo4D(const std::vector<size_t>& raw_shape) {
+    if (raw_shape.empty() || raw_shape.size() > 4) {
+        return {};
+    }
+    std::vector<size_t> normalized(4, 1);
+    for (size_t i = 0; i < raw_shape.size(); ++i) {
+        normalized[i] = raw_shape[i];
+    }
+    return normalized;
+}
+
+float BFloat16ToFloat(uint16_t bf16_val) {
+    uint32_t float_bits = static_cast<uint32_t>(bf16_val) << 16;
+    return *(float*)&float_bits;
+}
+}  // namespace
+
 Tensor Qwen3Model::Forward(const std::vector<uint32_t>& token_ids) {
+    // token_ids: [seq_len]
+    // hidden_state after embedding: [seq_len, hidden_dim]
     Tensor hidden_state = embedding_->Forward(token_ids);
     for (size_t i = 0; i < decoders_.size(); ++i) {
+        // each decoder keeps shape: [seq_len, hidden_dim]
         hidden_state = decoders_[i]->Forward(hidden_state);
     }
+    // final norm output: [seq_len, hidden_dim]
     hidden_state = final_norms_->Forward(hidden_state);
+    // lm_head logits: [seq_len, vocab_size]
     Tensor logits = lm_head_->Forward(hidden_state);
+    // softmax keeps shape: [seq_len, vocab_size]
     softmax_->Forward(logits);    
 
     return logits;
@@ -77,25 +101,11 @@ bool Qwen3Model::Load(const std::string& model_path) {
 
 
 bool Qwen3Model::LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor& weight) {
-    size_t elem_size = 0;
-    elem_size = 2;
-    std::vector<size_t> shape;
-    switch (info.shape.size()) {
-        case 1:
-            shape = {info.shape[0], 1, 1, 1};
-            break;
-        case 2:
-            shape = {info.shape[0], info.shape[1], 1, 1};
-            break;
-        case 3:
-            shape = {info.shape[0], info.shape[1], info.shape[2], 1};
-            break;
-        case 4:
-            shape = {info.shape[0], info.shape[1], info.shape[2], info.shape[3]};
-            break;
-        default:
-            LOG_ERROR("Unsupported tensor shape with %zu dimensions.", info.shape.size());
-            return false;   
+    const size_t elem_size = 2;  // bf16
+    std::vector<size_t> shape = NormalizeShapeTo4D(info.shape);
+    if (shape.empty()) {
+        LOG_ERROR("Unsupported tensor shape with %zu dimensions.", info.shape.size());
+        return false;
     }
     int64_t num_elements = std::accumulate(shape.begin(), shape.end(), 1LL, std::multiplies<int64_t>());
     Tensor weight_bf16(shape, elem_size);
@@ -108,9 +118,7 @@ bool Qwen3Model::LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor&
     uint16_t* bf16_data = (uint16_t*)weight_bf16.data_;
     float* float_data = (float*)weight.data_;
     for (int64_t i = 0; i < num_elements; ++i) {
-        uint16_t bf16_val = bf16_data[i];
-        uint32_t float_bits = (uint32_t)bf16_val << 16;
-        float_data[i] = *(float*)&float_bits;
+        float_data[i] = BFloat16ToFloat(bf16_data[i]);
     }
     return true;
 }
