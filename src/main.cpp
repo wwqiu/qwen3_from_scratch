@@ -4,7 +4,6 @@
 #include <fstream>
 #include "nlohmann/json.hpp"
 #include "tokenizer.h"
-#include "type.h"
 #include "qwen3.h"
 
 

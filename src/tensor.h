@@ -1,6 +1,5 @@
 #pragma once
 
-
 class Tensor {
 public:
     Tensor() : data_(nullptr) {}
@@ -20,20 +19,17 @@ public:
         if (!data_) {
             throw std::runtime_error("Failed to allocate memory for tensor data.");
         }
-        // printf("Allocated tensor with element size %zu bytes (total size: %zu bytes)\n", elem_size, total_size);
     }
 
     Tensor (size_t n, size_t c, size_t h, size_t w, size_t elem_size) : shape_{n, c, h, w}, elem_size_(elem_size) {
         data_ = new uint8_t[n * c * h * w * elem_size];
     }
 
-    // Disable copy to prevent double-free from shallow copies
     Tensor(const Tensor&) = delete;
     Tensor& operator=(const Tensor&) = delete;
 
-    // Add move constructor and move assignment operator for efficient resource management
     Tensor(Tensor&& other) noexcept : shape_(std::move(other.shape_)), data_(other.data_), elem_size_(other.elem_size_) {
-        other.data_ = nullptr; // Prevent double deletion
+        other.data_ = nullptr;
     }
 
     Tensor& operator=(Tensor&& other) noexcept {

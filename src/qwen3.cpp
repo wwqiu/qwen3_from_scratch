@@ -77,12 +77,7 @@ bool Qwen3Model::Load(const std::string& model_path) {
 
 
 bool Qwen3Model::LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor& weight) {
-    // LOG_INFO("Loading weight: %s | dtype: %s ", info.name.c_str(), info.dtype.c_str());
     size_t elem_size = 0;
-    // if (info.dtype != "BF16") {
-    //     LOG_ERROR("Unsupported data type: %s", info.dtype.c_str());
-    //     return false;
-    // }
     elem_size = 2;
     std::vector<size_t> shape;
     switch (info.shape.size()) {

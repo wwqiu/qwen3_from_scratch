@@ -7,7 +7,6 @@
 #include "nlohmann/json.hpp"
 #include <codecvt>
 #include <locale>
-#include "tensor.h"
 
 namespace nlohmann {
     template <>
