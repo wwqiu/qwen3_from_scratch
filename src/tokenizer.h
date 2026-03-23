@@ -16,11 +16,8 @@ public:
 
 private:
     TokenizerConfig config_;
-    std::unordered_map<std::string, uint32_t> token_to_id_;
     std::unordered_map<uint32_t, std::string> id_to_token_;
-    std::unordered_map<std::string, uint32_t> special_token_to_id_;
     std::unordered_set<uint32_t> special_token_ids_;
-    std::vector<std::string> special_tokens_sorted_;
 
     std::vector<std::wstring> PreTokenize(const std::wstring& text);
     void EncodeNormalText(const std::string& text, std::vector<uint32_t>& ids);

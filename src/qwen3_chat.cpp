@@ -23,7 +23,7 @@ static std::string BuildPrompt(const std::vector<ChatMessage>& messages, bool ad
         prompt += "<|im_start|>assistant\n";
     }
     if (!enable_think) {
-        prompt += "<think>\n\n</think>\n";
+        prompt += "<think>\n\n</think>\n\n";
     }
     return prompt;
 }
@@ -40,11 +40,11 @@ static std::string GenerateReply(Qwen3Model& model,
                                  Tokenizer& tokenizer,
                                  const std::vector<ChatMessage>& messages,
                                  size_t max_new_tokens,
-                                 const std::vector<uint32_t>& im_end_ids) {
-    const std::string prompt = BuildPrompt(messages, true, true);
+                                 const std::vector<uint32_t>& im_end_ids,
+                                 bool enable_think = false) {
+    const std::string prompt = BuildPrompt(messages, true, enable_think);
     // std::cout << prompt << std::endl;
     const std::vector<uint32_t> prompt_ids = tokenizer.Encode(prompt);
-
     std::vector<uint32_t> generated_ids;
     generated_ids.reserve(max_new_tokens);
 
@@ -99,6 +99,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) tokenizer_path = argv[1];
     if (argc > 2) model_path = argv[2];
     if (argc > 3) max_new_tokens = static_cast<size_t>(std::stoul(argv[3]));
+    bool enable_think = false;
 
     std::cout << "Loading model from: " << model_path << std::endl;
     Qwen3Model model;

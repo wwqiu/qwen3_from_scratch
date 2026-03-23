@@ -178,14 +178,7 @@ struct KVCache {
         max_len = max_seq_len;
         k_cache = Tensor({max_seq_len, kv_dim}, sizeof(float));
         v_cache = Tensor({max_seq_len, kv_dim}, sizeof(float));
-        // set to -1e9 to indicate empty cache
-        float* k_data = k_cache.data<float>();
-        float* v_data = v_cache.data<float>();
-        for (size_t i = 0; i < max_seq_len * kv_dim; ++i) {
-            k_data[i] = -1e9f;
-            v_data[i] = 0.f;
-        }
-        cached_len = 0;
+        Reset();
     }
     void Reset() {
         float* k_data = k_cache.data<float>();

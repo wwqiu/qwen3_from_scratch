@@ -92,29 +92,18 @@ void Tokenizer::LoadConfig(const std::string& config_file) {
         }
 
         config_.vocab = j.at("model").at("vocab").get<Vocab>();
-        token_to_id_.clear();
         id_to_token_.clear();
-        special_token_to_id_.clear();
         special_token_ids_.clear();
-        special_tokens_sorted_.clear();
         for (const auto& kv : config_.vocab) {
-            token_to_id_[kv.first] = kv.second;
             id_to_token_[kv.second] = kv.first;
         }
         for (const auto& token : config_.added_tokens) {
-            const std::string content = WideToUTF8(token.content);
-            token_to_id_[content] = static_cast<uint32_t>(token.id);
+            const std::string content = token.content;
             id_to_token_[static_cast<uint32_t>(token.id)] = content;
             if (token.special) {
-                special_token_to_id_[content] = static_cast<uint32_t>(token.id);
                 special_token_ids_.insert(static_cast<uint32_t>(token.id));
-                special_tokens_sorted_.push_back(content);
             }
         }
-        std::sort(special_tokens_sorted_.begin(), special_tokens_sorted_.end(),
-                  [](const std::string& a, const std::string& b) {
-                      return a.size() > b.size();
-                  });
 
         std::wstring w_regex = j.at("pre_tokenizer")
             .at("pretokenizers").at(0)
@@ -235,15 +224,15 @@ std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
     size_t pos = 0;
     while (pos < text.size()) {
         bool matched_special = false;
-        for (const auto& special : special_tokens_sorted_) {
-            if (special.empty() || pos + special.size() > text.size()) {
+        for (const auto& added_token : config_.added_tokens) {
+            if (added_token.content.empty() || pos + added_token.content.size() > text.size()) {
                 continue;
             }
-            if (text.compare(pos, special.size(), special) == 0) {
+            if (text.compare(pos, added_token.content.size(), added_token.content) == 0) {
                 EncodeNormalText(normal_buffer, ids);
                 normal_buffer.clear();
-                ids.push_back(special_token_to_id_.at(special));
-                pos += special.size();
+                ids.push_back(added_token.id);
+                pos += added_token.content.size();
                 matched_special = true;
                 break;
             }
