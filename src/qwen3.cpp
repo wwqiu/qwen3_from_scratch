@@ -25,13 +25,13 @@ float BFloat16ToFloat(uint16_t bf16_val) {
 }
 }  // namespace
 
-Tensor Qwen3Model::Forward(const std::vector<uint32_t>& token_ids) {
+Tensor Qwen3Model::Forward(const std::vector<uint32_t>& token_ids, size_t position) {
     // token_ids: [seq_len]
     // hidden_state after embedding: [seq_len, hidden_dim]
     Tensor hidden_state = embedding_->Forward(token_ids);
     for (size_t i = 0; i < decoders_.size(); ++i) {
         // each decoder keeps shape: [seq_len, hidden_dim]
-        hidden_state = decoders_[i]->Forward(hidden_state);
+        hidden_state = decoders_[i]->Forward(hidden_state, position);
     }
     // final norm output: [seq_len, hidden_dim]
     hidden_state = final_norms_->Forward(hidden_state);
@@ -110,13 +110,13 @@ bool Qwen3Model::LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor&
     int64_t num_elements = std::accumulate(shape.begin(), shape.end(), 1LL, std::multiplies<int64_t>());
     Tensor weight_bf16(shape, elem_size);
     file.seekg(info.data_offsets[0] + data_offset_, std::ios::beg);
-    file.read((char*)(weight_bf16.data_), num_elements * elem_size);
+    file.read((char*)(weight_bf16.data<uint16_t>()), num_elements * elem_size);
     if (file.gcount() != static_cast<std::streamsize>(num_elements * elem_size)) {
         LOG_ERROR("Failed to read tensor data for: %s", info.name.c_str());
         return false;
     }
-    uint16_t* bf16_data = (uint16_t*)weight_bf16.data_;
-    float* float_data = (float*)weight.data_;
+    uint16_t* bf16_data = weight_bf16.data<uint16_t>();
+    float* float_data = weight.data<float>();
     for (int64_t i = 0; i < num_elements; ++i) {
         float_data[i] = BFloat16ToFloat(bf16_data[i]);
     }
@@ -171,7 +171,7 @@ bool Qwen3Model::ParseSafetensorsHeader(const std::string& filepath) {
 
 bool Qwen3Model::ParseConfig(const std::string& model_path, json& config) {
     config = json::parse(std::ifstream(model_path));
-    LOG_INFO("--- Model Config ---");
-    LOG_INFO("%s", config.dump(2).c_str());
+    LOG_INFO("--- Load Model Config Succeeded ---");
+    //LOG_INFO("%s", config.dump(2).c_str());
     return true;
 }

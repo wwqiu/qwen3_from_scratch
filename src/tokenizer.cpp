@@ -92,6 +92,29 @@ void Tokenizer::LoadConfig(const std::string& config_file) {
         }
 
         config_.vocab = j.at("model").at("vocab").get<Vocab>();
+        token_to_id_.clear();
+        id_to_token_.clear();
+        special_token_to_id_.clear();
+        special_token_ids_.clear();
+        special_tokens_sorted_.clear();
+        for (const auto& kv : config_.vocab) {
+            token_to_id_[kv.first] = kv.second;
+            id_to_token_[kv.second] = kv.first;
+        }
+        for (const auto& token : config_.added_tokens) {
+            const std::string content = WideToUTF8(token.content);
+            token_to_id_[content] = static_cast<uint32_t>(token.id);
+            id_to_token_[static_cast<uint32_t>(token.id)] = content;
+            if (token.special) {
+                special_token_to_id_[content] = static_cast<uint32_t>(token.id);
+                special_token_ids_.insert(static_cast<uint32_t>(token.id));
+                special_tokens_sorted_.push_back(content);
+            }
+        }
+        std::sort(special_tokens_sorted_.begin(), special_tokens_sorted_.end(),
+                  [](const std::string& a, const std::string& b) {
+                      return a.size() > b.size();
+                  });
 
         std::wstring w_regex = j.at("pre_tokenizer")
             .at("pretokenizers").at(0)
@@ -195,30 +218,46 @@ void Tokenizer::BPETokenize(const std::string& utf8_word, std::vector<uint32_t>&
     }
 }
 
-std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
+void Tokenizer::EncodeNormalText(const std::string& text, std::vector<uint32_t>& ids) {
+    if (text.empty()) return;
     std::wstring wtext = UTF8ToWide(text);
     std::vector<std::wstring> pre_tokens = PreTokenize(wtext);
 
-    std::vector<uint32_t> ids;
     for (const auto& w : pre_tokens) {
         std::string utf8_part = WideToUTF8(w);
         BPETokenize(utf8_part, ids);
     }
-
-    return ids;
 }
 
-std::string Tokenizer::Decode(const std::vector<uint32_t>& token_ids) {
-    std::string byte_level_text;
-    for (uint32_t id : token_ids) {
-        for (const auto& kv : config_.vocab) {
-            if (kv.second == id) {
-                byte_level_text += kv.first;
+std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
+    std::vector<uint32_t> ids;
+    std::string normal_buffer;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        bool matched_special = false;
+        for (const auto& special : special_tokens_sorted_) {
+            if (special.empty() || pos + special.size() > text.size()) {
+                continue;
+            }
+            if (text.compare(pos, special.size(), special) == 0) {
+                EncodeNormalText(normal_buffer, ids);
+                normal_buffer.clear();
+                ids.push_back(special_token_to_id_.at(special));
+                pos += special.size();
+                matched_special = true;
                 break;
             }
         }
+        if (!matched_special) {
+            normal_buffer.push_back(text[pos]);
+            ++pos;
+        }
     }
+    EncodeNormalText(normal_buffer, ids);
+    return ids;
+}
 
+std::string Tokenizer::DecodeByteLevelText(const std::string& byte_level_text) {
     static std::unordered_map<uint32_t, uint8_t> unicode_to_byte;
     if (unicode_to_byte.empty()) {
         int n = 0;
@@ -272,3 +311,23 @@ std::string Tokenizer::Decode(const std::vector<uint32_t>& token_ids) {
     return raw_bytes_text;
 }
 
+std::string Tokenizer::Decode(const std::vector<uint32_t>& token_ids) {
+    std::string output;
+    std::string byte_level_text;
+    for (uint32_t id : token_ids) {
+        auto it = id_to_token_.find(id);
+        if (it == id_to_token_.end()) {
+            continue;
+        }
+        if (special_token_ids_.count(id)) {
+            output += DecodeByteLevelText(byte_level_text);
+            byte_level_text.clear();
+            output += it->second;
+        }
+        else {
+            byte_level_text += it->second;
+        }
+    }
+    output += DecodeByteLevelText(byte_level_text);
+    return output;
+}

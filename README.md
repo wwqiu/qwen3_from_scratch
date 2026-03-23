@@ -6,11 +6,13 @@
 
 ## 功能
 
-- BPE Tokenizer（含 byte-level 解码）
+- BPE Tokenizer（含 byte-level 解码及特殊 token 处理）
 - RMSNorm、GQA Multi-Head Attention、SwiGLU MLP、RoPE 位置编码
-- safetensors 权重加载
+- KV Cache 增量推理（显著提升多轮对话性能）
+- safetensors 权重加载（支持 BFloat16 → Float32 转换）
 - Greedy 采样 + 文本解码
 - 完整前向传播：Embedding → N × Decoder → Final Norm → LM Head → Softmax → Sampler
+- 交互式聊天Demo
 
 ## 构建
 
@@ -35,9 +37,21 @@ make -j4
 
 ## 运行
 
+**单次推理模式**
+
 ```bash
 ./qwen3 /path/to/tokenizer.json /path/to/model.safetensors
 ```
+
+**聊天模式**
+
+```bash
+./qwen3_chat /path/to/tokenizer.json /path/to/model.safetensors [max_new_tokens]
+```
+
+支持命令：
+- `/clear` - 清空对话历史
+- `/exit` 或 `quit` - 退出程序
 
 模型文件从 Hugging Face 下载 Qwen3 系列（如 Qwen3-0.6B）即可。
 
@@ -50,11 +64,12 @@ make -j4
 ```
 qwen3_from_scratch/
 ├── src/
-│   ├── main.cpp          # 入口：加载模型、推理循环
+│   ├── main.cpp          # 单次推理入口
+│   ├── qwen3_chat.cpp    # 交互式聊天入口（支持 KV cache）
 │   ├── qwen3.h/cpp       # 模型主体
-│   ├── operator.hpp      # 算子实现（Attention/MLP/RMSNorm/Sampler 等）
-│   ├── tokenizer.h/cpp   # BPE Tokenizer + Decode
-│   ├── tensor.h          # Tensor 数据结构
+│   ├── operator.hpp      # 算子实现（Attention/MLP/RMSNorm/KVCache/Sampler 等）
+│   ├── tokenizer.h/cpp   # BPE Tokenizer + Decode + 特殊 token 处理
+│   ├── tensor.h          # Tensor 数据结构（shared_ptr 内存管理）
 │   ├── type.h            # 基础类型定义
 │   └── logger.h          # 日志工具
 ├── docs/

@@ -17,11 +17,11 @@ void PrintTokenIds(const std::vector<uint32_t>& ids) {
 }
 
 void DumpTensor(const std::string& filename, Tensor& tensor) {
-    size_t rows = tensor.shape_[0];
-    size_t cols = tensor.shape_[1];
+    size_t rows = tensor.shape()[0];
+    size_t cols = tensor.shape()[1];
     std::ofstream file(filename);
     for (size_t i = 0; i < rows; ++i) {
-        float* data = (float*)tensor.data_ + i * cols;
+        float* data = tensor.data<float>() + i * cols;
         for (size_t j = 0; j < cols; ++j) {
             file << data[j] << " ";
         }
@@ -64,6 +64,8 @@ int main(int argc, char* argv[]) {
         std::cout << "Input: " << input << std::endl;
 
         std::vector<uint32_t> ids = tokenizer.Encode(input);
+        
+        model.ClearCache();
 
         Tensor tensor = model.Forward(ids);
 

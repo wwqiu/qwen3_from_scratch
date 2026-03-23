@@ -48,8 +48,8 @@ public:
         Tensor output({token_ids.size(), hidden_dim_}, sizeof(float));
         for (size_t i = 0; i < token_ids.size(); ++i) {
             uint32_t token_id = token_ids[i];
-            float* weight_row = (float*)weight_.data_ + token_id * hidden_dim_;
-            float* output_row = (float*)output.data_ + i * hidden_dim_;
+            float* weight_row = weight_.data<float>() + token_id * hidden_dim_;
+            float* output_row = output.data<float>() + i * hidden_dim_;
             memcpy(output_row, weight_row, hidden_dim_ * sizeof(float));
         }
         return output;
@@ -80,20 +80,20 @@ public:
     *   RMS(x) = sqrt(mean(x^2) + eps)
     *   y      = x / RMS(x) * weight
     */
-    Tensor Forward(const Tensor& input) {
+    Tensor Forward(Tensor& input) {
         float rms = 0.0f;
-        float* input_data = (float*)input.data_;
+        float* input_data = input.data<float>();
 
-        size_t seq_len = input.shape_[0];
-        size_t dim = input.shape_[1];
+        size_t seq_len = input.shape()[0];
+        size_t dim = input.shape()[1];
         size_t num_head = dim / hidden_dim_;
 
-        Tensor output(input.shape_, sizeof(float));
+        Tensor output(input.shape(), sizeof(float));
 
-        float* weight_data = (float*)weight_.data_;
+        float* weight_data = weight_.data<float>();
         for (size_t i = 0; i < seq_len; ++i) {
-            float* input_row = (float*)input.data_ + i * dim;
-            float* output_row = (float*)output.data_ + i * dim;
+            float* input_row = input.data<float>() + i * dim;
+            float* output_row = output.data<float>() + i * dim;
             for (size_t h = 0; h < num_head; ++h) {
                 float* input_head = input_row + h * hidden_dim_;
                 float* output_head = output_row + h * hidden_dim_;
@@ -141,16 +141,16 @@ public:
     * 矩阵关系：
     *   output = input * weight^T
     */
-    Tensor Forward(const Tensor& input) {
-        size_t seq_len = input.shape_[0];
+    Tensor Forward(Tensor& input) {
+        size_t seq_len = input.shape()[0];
         Tensor output({seq_len, output_dim_}, sizeof(float));
         // matmul : output = input * weight
         for (size_t i = 0; i < seq_len; ++i) {
-            float* input_row = (float*)input.data_ + i * input_dim_;
-            float* output_row = (float*)output.data_ + i * output_dim_;
+            float* input_row = input.data<float>() + i * input_dim_;
+            float* output_row = output.data<float>() + i * output_dim_;
             for (size_t j = 0; j < output_dim_; ++j) {
                 output_row[j] = 0.0f;
-                float* weight_data = (float*)weight_.data_ + j * input_dim_;
+                float* weight_data = weight_.data<float>() + j * input_dim_;
                 for (size_t k = 0; k < input_dim_; ++k) {
                     output_row[j] += input_row[k] * weight_data[k];
                 }
@@ -168,9 +168,40 @@ public:
 // ============================================================================
 // 4) Attention
 // ============================================================================
+struct KVCache {
+    Tensor k_cache; // [max_seq_len, num_kv_heads * head_dim]
+    Tensor v_cache; // [max_seq_len, num_kv_heads * head_dim]
+    size_t cached_len = 0;
+    size_t max_len = 0;
+    KVCache() = default;
+    KVCache(size_t max_seq_len, size_t kv_dim) {
+        max_len = max_seq_len;
+        k_cache = Tensor({max_seq_len, kv_dim}, sizeof(float));
+        v_cache = Tensor({max_seq_len, kv_dim}, sizeof(float));
+        // set to -1e9 to indicate empty cache
+        float* k_data = k_cache.data<float>();
+        float* v_data = v_cache.data<float>();
+        for (size_t i = 0; i < max_seq_len * kv_dim; ++i) {
+            k_data[i] = -1e9f;
+            v_data[i] = 0.f;
+        }
+        cached_len = 0;
+    }
+    void Reset() {
+        float* k_data = k_cache.data<float>();
+        float* v_data = v_cache.data<float>();
+        for (size_t i = 0; i < max_len * k_cache.shape()[1]; ++i) {
+            k_data[i] = -1e9f;
+            v_data[i] = 0.f;
+        }
+        cached_len = 0;
+    }
+    bool IsEmpty() const { return cached_len == 0; }
+};
+
 class Attention {
 public:
-    Attention(size_t hidden_dim, size_t num_kv_heads, size_t num_heads, size_t head_dim) 
+    Attention(size_t hidden_dim, size_t num_kv_heads, size_t num_heads, size_t head_dim, size_t max_seq_len = 1024) 
         : hidden_dim_(hidden_dim), num_kv_heads_(num_kv_heads), num_heads_(num_heads), head_dim_(head_dim) {
         q_norm_ = std::make_shared<RMSNorm>(head_dim_);
         k_norm_ = std::make_shared<RMSNorm>(head_dim_);
@@ -178,6 +209,8 @@ public:
         k_proj_ = std::make_shared<LinearProjection>(hidden_dim_, num_kv_heads_ * head_dim_);
         v_proj_ = std::make_shared<LinearProjection>(hidden_dim_, num_kv_heads_ * head_dim_);
         output_proj_ = std::make_shared<LinearProjection>(num_heads_ * head_dim_, hidden_dim_);
+        use_cache_ = true;
+        kv_cache_ = KVCache(max_seq_len, num_kv_heads_ * head_dim_);
     }   
 
     
@@ -193,6 +226,8 @@ public:
     *  Q-Norm    K-Norm    │
     *    ↓         ↓       │
     *    └──RoPE───┘       │
+    *        ↓             │
+    *   update KV cache    │
     *        ↓             ↓ 
     *   ComputeAttention(Q, K, V)
     *              ↓
@@ -200,7 +235,7 @@ public:
     *              ↓
     *            return
     */
-    Tensor Forward(const Tensor& input) {
+    Tensor Forward(Tensor& input, size_t position = 0) {
         // input: [seq_len, hidden_dim]
         // q: [seq_len, num_heads * head_dim]
         // k/v: [seq_len, num_kv_heads * head_dim]
@@ -213,10 +248,21 @@ public:
         q = q_norm_->Forward(q);
 
         // RoPE
-        ApplyRoPE(q, k);
+        ApplyRoPE(q, k, position);
+
+        // k v cache
+        Tensor k_full, v_full;
+        if (use_cache_) {
+            UpdateCache(k, v);
+            k_full = kv_cache_.k_cache;
+            v_full = kv_cache_.v_cache;
+        } else {
+            k_full = k;
+            v_full = v;
+        }
 
         // attention scores and weighted sum
-        Tensor attention_output = ComputeAttention(q, k, v);
+        Tensor attention_output = ComputeAttention(q, k_full, v_full, position);
 
         // output projection
         attention_output = output_proj_->Forward(attention_output);
@@ -224,27 +270,48 @@ public:
         return attention_output;
     }
 
+    void UpdateCache(Tensor& k, Tensor& v) {
+        size_t cached_len = kv_cache_.cached_len;
+        size_t max_len = kv_cache_.max_len;
+        size_t seq_len = k.shape()[0];
+        if (cached_len + seq_len > max_len) {
+            throw std::runtime_error("KV cache overflow: cached_len + seq_len exceeds max_len");        
+        }
+        // copy new k/v to cache
+        size_t kv_dim = num_kv_heads_ * head_dim_;
+        float* k_cache_data = kv_cache_.k_cache.data<float>() + cached_len * kv_dim;
+        float* v_cache_data = kv_cache_.v_cache.data<float>() + cached_len * kv_dim;
+        float* k_data = k.data<float>();
+        float* v_data = v.data<float>();
+        memcpy(k_cache_data, k_data, seq_len * kv_dim * sizeof(float));
+        memcpy(v_cache_data, v_data, seq_len * kv_dim * sizeof(float));
+        kv_cache_.cached_len += seq_len;
+    }
+
+    void ClearCache() {
+        kv_cache_.Reset();
+    }
    /**
     * RoPE 旋转公式（按每个 head 的前后半维度成对旋转）：
     *   x' = x * cos(theta) - y * sin(theta)
     *   y' = x * sin(theta) + y * cos(theta)
     * 其中 theta = pos / rope_theta^(2d/head_dim)
     */
-    void ApplyRoPE(Tensor& q, Tensor& k) {
-        size_t seq_lens = q.shape_[0];
+    void ApplyRoPE(Tensor& q, Tensor& k, size_t pos = 0) {
+        size_t seq_lens = q.shape()[0];
         int half_dim = head_dim_ / 2;
         
         for (size_t i = 0; i < seq_lens; ++i) {
             // half spilt
             for (int d = 0; d < half_dim; ++d) {
                 float freq = 1.0f / std::pow(rope_theta_, (float)(2 * d) / head_dim_);
-                float angle = i * freq;
+                float angle = (pos + i) * freq;
                 float cos_val = std::cos(angle);
                 float sin_val = std::sin(angle);
 
                 // apply RoPE to q
                 for (size_t h = 0; h < num_heads_; ++h) {
-                    float* head_ptr = (float*)q.data_ + i * num_heads_ * head_dim_ + h * head_dim_;
+                    float* head_ptr = q.data<float>() + i * num_heads_ * head_dim_ + h * head_dim_;
                     float x = head_ptr[d];
                     float y = head_ptr[d + half_dim];
                     head_ptr[d] = x * cos_val - y * sin_val;
@@ -253,7 +320,7 @@ public:
 
                 // apply RoPE to k
                 for (size_t h = 0; h < num_kv_heads_; ++h) {
-                    float* head_ptr = (float*)k.data_ + i * num_kv_heads_ * head_dim_ + h * head_dim_;
+                    float* head_ptr = k.data<float>() + i * num_kv_heads_ * head_dim_ + h * head_dim_;
                     float x = head_ptr[d];
                     float y = head_ptr[d + half_dim];
                     head_ptr[d] = x * cos_val - y * sin_val;
@@ -271,24 +338,25 @@ public:
     * v: [seq_len, num_kv_heads * head_dim]
     * output: [seq_len, num_heads * head_dim]
     */
-    Tensor ComputeAttention(const Tensor& q, const Tensor& k, const Tensor& v) {
-        size_t seq_len = q.shape_[0];
+    Tensor ComputeAttention(Tensor& q, Tensor& k, Tensor& v, size_t position = 0) {
+        size_t seq_len = q.shape()[0];
         float scale = 1.0f / std::sqrt((float)head_dim_);
         Tensor output({seq_len, num_heads_ * head_dim_}, sizeof(float));
+        
         for (size_t h = 0; h < num_heads_; ++h) {
             size_t kv_h = h / (num_heads_ / num_kv_heads_);
             for (size_t i = 0; i < seq_len; ++i) {
                 // score = Q * K^T
-                std::vector<float> attention_scores(seq_len);
-                for (size_t j = 0; j < seq_len; ++j) {
+                std::vector<float> attention_scores(position + seq_len);
+                for (size_t j = 0; j < position + seq_len; ++j) {
                     // causal mask is applied here by setting attention scores to -inf for j > i
-                    if (j > i) { 
+                    if (j > i + position) { 
                         attention_scores[j] = -1e9; 
                         continue;
                     }
                     float dot = 0.0f;
-                    float* q_ptr = (float*)q.data_ + (i * num_heads_ + h) * head_dim_;
-                    float* k_ptr = (float*)k.data_ + (j * num_kv_heads_ + kv_h) * head_dim_;
+                    float* q_ptr = q.data<float>() + (i * num_heads_ + h) * head_dim_;
+                    float* k_ptr = k.data<float>() + (j * num_kv_heads_ + kv_h) * head_dim_;
                     
                     for (int d = 0; d < head_dim_; ++d) {
                         dot += q_ptr[d] * k_ptr[d];
@@ -296,14 +364,14 @@ public:
                     attention_scores[j] = dot * scale;
                 }
                 
-                SoftMax(attention_scores.data(), seq_len);
+                SoftMax(attention_scores.data(), position + seq_len);
 
                 // weighted sum: output = sum(attention_scores * V)
-                float* out_ptr = (float*)output.data_ + (i * num_heads_ + h) * head_dim_;
+                float* out_ptr = output.data<float>() + (i * num_heads_ + h) * head_dim_;
                 memset(out_ptr, 0, head_dim_ * sizeof(float));
-                for (size_t j = 0; j < seq_len; ++j) {
+                for (size_t j = 0; j < position + seq_len; ++j) {
                     float weight = attention_scores[j];
-                    float* v_ptr = (float*)v.data_ + (j * num_kv_heads_ + kv_h) * head_dim_;
+                    float* v_ptr = v.data<float>() + (j * num_kv_heads_ + kv_h) * head_dim_;
                     for (int d = 0; d < head_dim_; ++d) {
                         out_ptr[d] += weight * v_ptr[d];
                     }
@@ -343,6 +411,9 @@ public:
     std::vector<float> sin_table_k_;
     std::vector<float> cos_table_q_;
     std::vector<float> sin_table_q_;
+
+    KVCache kv_cache_;
+    bool use_cache_ = false;
     
 };
 
@@ -375,15 +446,15 @@ public:
     *               ↓
     *             output
     */
-    void Forward(const Tensor& input, Tensor& output) {
+    void Forward(Tensor& input, Tensor& output) {
         // input: [seq_len, hidden_dim]
         // up/gate: [seq_len, intermediate_size]
         Tensor up = up_proj_->Forward(input);
         Tensor gate = gate_proj_->Forward(input);
-        size_t seq_len = input.shape_[0];
+        size_t seq_len = input.shape()[0];
         for (size_t i = 0; i < seq_len; ++i) {
-            float* up_ptr = (float*)up.data_ + i * intermediate_size_;
-            float* gate_ptr = (float*)gate.data_ + i * intermediate_size_;
+            float* up_ptr = up.data<float>() + i * intermediate_size_;
+            float* gate_ptr = gate.data<float>() + i * intermediate_size_;
             for (size_t j = 0; j < intermediate_size_; ++j) {
                 // SiLU(x) = x * sigmoid(x)
                 up_ptr[j] =  (gate_ptr[j] * Sigmoid(gate_ptr[j])) * up_ptr[j];
@@ -444,13 +515,13 @@ public:
     *        ↓
     *      output
     */
-    Tensor Forward(const Tensor& input) {
+    Tensor Forward(Tensor& input, size_t position = 0) {
         // input: [seq_len, hidden_dim]
         Tensor residual = input.clone();
         // hidden_states: [seq_len, hidden_dim]
         Tensor hidden_states = input_norm_->Forward(input);
         // attention
-        hidden_states = attention_->Forward(hidden_states);
+        hidden_states = attention_->Forward(hidden_states, position);
         // residual add 1: [seq_len, hidden_dim] + [seq_len, hidden_dim]
         hidden_states = residual + hidden_states;
         residual = hidden_states.clone();
@@ -460,6 +531,10 @@ public:
         // residual add 2: [seq_len, hidden_dim] + [seq_len, hidden_dim]
         hidden_states = residual + hidden_states;
         return hidden_states;
+    }
+
+    void ClearCache() {
+        attention_->ClearCache();
     }
 
     std::shared_ptr<RMSNorm> input_norm_;
@@ -481,10 +556,10 @@ class SoftMax {
 public:
     // Softmax(x_i) = exp(x_i - max(x)) / sum_j exp(x_j - max(x))
     void Forward(Tensor& input) {
-        size_t seq_len = input.shape_[0];
-        size_t dim = input.shape_[1];
+        size_t seq_len = input.shape()[0];
+        size_t dim = input.shape()[1];
         for (size_t i = 0; i < seq_len; ++i) {
-            float* row_ptr = (float*)input.data_ + i * dim;
+            float* row_ptr = input.data<float>() + i * dim;
             float max_val = *std::max_element(row_ptr, row_ptr + dim);
             float sum = 0.0f;
             for (size_t j = 0; j < dim; ++j) {
@@ -505,11 +580,11 @@ class Sampler {
 public:
     Sampler() = default;
 
-    uint32_t Sample(const Tensor& logits) {
+    uint32_t Sample(Tensor& logits) {
         // For simplicity, we just return the token with the highest probability
-        size_t seq_len = logits.shape_[0];
-        size_t vocab_size = logits.shape_[1];
-        float* data = (float*)logits.data_ + (seq_len - 1) * vocab_size; // Get the last token's logits
+        size_t seq_len = logits.shape()[0];
+        size_t vocab_size = logits.shape()[1];
+        float* data = logits.data<float>() + (seq_len - 1) * vocab_size; // Get the last token's logits
         uint32_t best_token = 0;
         float max_prob = -std::numeric_limits<float>::infinity();
         for (size_t i = 0; i < vocab_size; ++i) {

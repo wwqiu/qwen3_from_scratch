@@ -38,7 +38,13 @@ class Qwen3Model
 
         bool Load(const std::string& model_path);
 
-        Tensor Forward(const std::vector<uint32_t>& token_ids);
+        void ClearCache() {
+            for (auto& decoder : decoders_) {
+                decoder->ClearCache();
+            }
+        }
+
+        Tensor Forward(const std::vector<uint32_t>& token_ids, size_t position = 0);
 
         bool ParseSafetensorsHeader(const std::string& model_path);
 
