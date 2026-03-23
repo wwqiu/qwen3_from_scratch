@@ -226,9 +226,9 @@ public:
     *  Q-Norm    K-Norm    │
     *    ↓         ↓       │
     *    └──RoPE───┘       │
-    *        ↓             │
-    *   update KV cache    │
-    *        ↓             ↓ 
+    *        ↓             ↓
+    *        Update KV cache  
+    *              ↓ 
     *   ComputeAttention(Q, K, V)
     *              ↓
     *         Output-Proj
@@ -581,10 +581,9 @@ public:
     Sampler() = default;
 
     uint32_t Sample(Tensor& logits) {
-        // For simplicity, we just return the token with the highest probability
         size_t seq_len = logits.shape()[0];
         size_t vocab_size = logits.shape()[1];
-        float* data = logits.data<float>() + (seq_len - 1) * vocab_size; // Get the last token's logits
+        float* data = logits.data<float>() + (seq_len - 1) * vocab_size;
         uint32_t best_token = 0;
         float max_prob = -std::numeric_limits<float>::infinity();
         for (size_t i = 0; i < vocab_size; ++i) {
