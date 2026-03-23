@@ -1,4 +1,4 @@
-#include "qwen3.h"
+#include "qwen3_model.h"
 #include <iostream>
 #include <fstream>
 #include <algorithm>

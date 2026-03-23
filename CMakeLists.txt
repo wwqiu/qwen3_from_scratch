@@ -9,7 +9,7 @@ set(CMAKE_BUILD_TYPE Release)
 find_package(Boost REQUIRED COMPONENTS regex)
 
 set(CORE_SRCS
-    src/qwen3.cpp
+    src/qwen3_model.cpp
     src/tokenizer.cpp
 )
 

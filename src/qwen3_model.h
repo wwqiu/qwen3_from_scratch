@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include "type.h"
+#include "tokenizer.h"
 #include "operator.hpp"
 #include "nlohmann/json.hpp"
 using json = nlohmann::json;
@@ -46,11 +46,11 @@ class Qwen3Model
 
         Tensor Forward(const std::vector<uint32_t>& token_ids, size_t position = 0);
 
+    private:
         bool ParseSafetensorsHeader(const std::string& model_path);
 
         bool ParseConfig(const std::string& model_path, json& config);
 
-    private:
         bool LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor& weight);
 
         Embedding::Ptr embedding_;

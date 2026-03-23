@@ -4,7 +4,7 @@
 #include <fstream>
 #include "nlohmann/json.hpp"
 #include "tokenizer.h"
-#include "qwen3.h"
+#include "qwen3_model.h"
 
 
 void PrintTokenIds(const std::vector<uint32_t>& ids) {

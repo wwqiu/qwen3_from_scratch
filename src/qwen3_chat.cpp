@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "qwen3.h"
+#include "qwen3_model.h"
 #include "tokenizer.h"
 
 struct ChatMessage {
