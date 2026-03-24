@@ -66,11 +66,10 @@ qwen3_from_scratch/
 ├── src/
 │   ├── main.cpp          # 单次推理入口
 │   ├── qwen3_chat.cpp    # 交互式聊天入口（支持 KV cache）
-│   ├── qwen3.h/cpp       # 模型主体
+│   ├── qwen3_model.h/cpp # 模型主体
 │   ├── operator.hpp      # 算子实现（Attention/MLP/RMSNorm/KVCache/Sampler 等）
 │   ├── tokenizer.h/cpp   # BPE Tokenizer + Decode + 特殊 token 处理
 │   ├── tensor.h          # Tensor 数据结构（shared_ptr 内存管理）
-│   ├── type.h            # 基础类型定义
 │   └── logger.h          # 日志工具
 ├── docs/
 │   ├── architecture.md   # 架构说明
