@@ -1,13 +1,15 @@
 #include "tokenizer.h"
-#include "nlohmann/json.hpp"
-#include <boost/regex.hpp>
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <iomanip>
+
 #include <algorithm>
+#include <boost/regex.hpp>
 #include <codecvt>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
 #include <locale>
+#include <sstream>
+
+#include "nlohmann/json.hpp"
 
 using json = nlohmann::json;
 
@@ -56,12 +58,10 @@ std::map<unsigned char, std::string> CreateByteToUnicodeMap() {
         std::string utf8_char;
         if (unicode_val < 0x80) {
             utf8_char += (char)unicode_val;
-        }
-        else if (unicode_val < 0x800) {
+        } else if (unicode_val < 0x800) {
             utf8_char += (char)(0xC0 | (unicode_val >> 6));
             utf8_char += (char)(0x80 | (unicode_val & 0x3F));
-        }
-        else {
+        } else {
             utf8_char += (char)(0xE0 | (unicode_val >> 12));
             utf8_char += (char)(0x80 | ((unicode_val >> 6) & 0x3F));
             utf8_char += (char)(0x80 | (unicode_val & 0x3F));
@@ -105,33 +105,29 @@ void Tokenizer::LoadConfig(const std::string& config_file) {
             }
         }
 
-        std::wstring w_regex = j.at("pre_tokenizer")
-            .at("pretokenizers").at(0)
-            .at("pattern")
-            .at("Regex").get<std::wstring>();
+        // std::wstring w_regex = j.at("pre_tokenizer")
+        //     .at("pretokenizers").at(0)
+        //     .at("pattern")
+        //     .at("Regex").get<std::wstring>();
 
-        config_.pre_tokenizer_pattern = w_regex;
-    }
-    catch (std::exception& e) {
+        config_.pre_tokenizer_pattern =
+            L"(?i:'s|'t|'re|'ve|'m|'ll|'d)|"
+            L"[^\\r\\n[:alpha:][:digit:]]?[[:alpha:]]+|"
+            L"[[:digit:]]|"
+            L" ?[^\\s[:alpha:][:digit:]]+[\\r\\n]*|"
+            L"\\s*[\\r\\n]+|"
+            L"\\s+(?!\\S)|"
+            L"\\s+";
+    } catch (std::exception& e) {
         std::cerr << "Error loading tokenizer config: " << e.what() << std::endl;
     }
 }
 
 std::vector<std::wstring> Tokenizer::PreTokenize(const std::wstring& wtext) {
-    const std::wstring pattern_str =
-        L"(?i:'s|'t|'re|'ve|'m|'ll|'d)|"
-        L"[^\\r\\n[:alpha:][:digit:]]?[[:alpha:]]+|"
-        L"[[:digit:]]|"
-        L" ?[^\\s[:alpha:][:digit:]]+[\\r\\n]*|"
-        L"\\s*[\\r\\n]+|"
-        L"\\s+(?!\\S)|"
-        L"\\s+";
-
     boost::wregex re;
     try {
-        re.assign(pattern_str, boost::regex::perl);
-    }
-    catch (const boost::regex_error& e) {
+        re.assign(config_.pre_tokenizer_pattern, boost::regex::perl);
+    } catch (const boost::regex_error& e) {
         std::cerr << "Regex Error: " << e.what() << std::endl;
         return {};
     }
@@ -174,7 +170,7 @@ void Tokenizer::BPETokenize(const std::string& utf8_word, std::vector<uint32_t>&
         std::pair<std::string, std::string> best_pair;
 
         for (size_t i = 0; i < word_parts.size() - 1; ++i) {
-            std::pair<std::string, std::string> pair = { word_parts[i], word_parts[i + 1] };
+            std::pair<std::string, std::string> pair = {word_parts[i], word_parts[i + 1]};
             auto it = config_.bpe_ranks.find(pair);
             if (it != config_.bpe_ranks.end()) {
                 int rank = it->second;
@@ -197,12 +193,14 @@ void Tokenizer::BPETokenize(const std::string& utf8_word, std::vector<uint32_t>&
         auto it = config_.vocab.find(part);
         if (it != config_.vocab.end()) {
             tokens.push_back(it->second);
-        }
-        else {
+        } else {
             std::cerr << "[UNK: " << part << "] ";
-            if (config_.vocab.count("<unk>")) tokens.push_back(config_.vocab.at("<unk>"));
-            else if (config_.vocab.count("<|endoftext|>")) tokens.push_back(config_.vocab.at("<|endoftext|>"));
-            else tokens.push_back(0);
+            if (config_.vocab.count("<unk>"))
+                tokens.push_back(config_.vocab.at("<unk>"));
+            else if (config_.vocab.count("<|endoftext|>"))
+                tokens.push_back(config_.vocab.at("<|endoftext|>"));
+            else
+                tokens.push_back(0);
         }
     }
 }
@@ -251,9 +249,7 @@ std::string Tokenizer::DecodeByteLevelText(const std::string& byte_level_text) {
     if (unicode_to_byte.empty()) {
         int n = 0;
         for (int b = 0; b < 256; ++b) {
-            bool is_direct = (b >= 33 && b <= 126) || 
-                             (b >= 161 && b <= 172) || 
-                             (b >= 174 && b <= 255);
+            bool is_direct = (b >= 33 && b <= 126) || (b >= 161 && b <= 172) || (b >= 174 && b <= 255);
             if (is_direct) {
                 unicode_to_byte[b] = static_cast<uint8_t>(b);
             } else {
@@ -264,11 +260,11 @@ std::string Tokenizer::DecodeByteLevelText(const std::string& byte_level_text) {
     }
 
     std::string raw_bytes_text;
-    for (size_t i = 0; i < byte_level_text.size(); ) {
+    for (size_t i = 0; i < byte_level_text.size();) {
         unsigned char c = byte_level_text[i];
         uint32_t cp = 0;
         int bytes = 0;
-        
+
         if (c <= 0x7F) {
             cp = c;
             bytes = 1;
@@ -312,8 +308,7 @@ std::string Tokenizer::Decode(const std::vector<uint32_t>& token_ids) {
             output += DecodeByteLevelText(byte_level_text);
             byte_level_text.clear();
             output += it->second;
-        }
-        else {
+        } else {
             byte_level_text += it->second;
         }
     }

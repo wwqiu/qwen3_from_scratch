@@ -1,9 +1,10 @@
 #pragma once
 
 #include <string>
-#include "tokenizer.h"
-#include "operator.hpp"
+
 #include "nlohmann/json.hpp"
+#include "operator.hpp"
+#include "tokenizer.h"
 using json = nlohmann::json;
 
 struct HeaderInfo {
@@ -29,41 +30,39 @@ struct HeaderInfo {
     }
 };
 
+class Qwen3Model {
+   public:
+    Qwen3Model() = default;
+    ~Qwen3Model() = default;
 
-class Qwen3Model
-{
-    public:
-        Qwen3Model() = default;
-        ~Qwen3Model() = default;
+    bool Load(const std::string& model_path);
 
-        bool Load(const std::string& model_path);
-
-        void ClearCache() {
-            for (auto& decoder : decoders_) {
-                decoder->ClearCache();
-            }
+    void ClearCache() {
+        for (auto& decoder : decoders_) {
+            decoder->ClearCache();
         }
+    }
 
-        Tensor Forward(const std::vector<uint32_t>& token_ids, size_t position = 0);
+    Tensor Forward(const std::vector<uint32_t>& token_ids, size_t position = 0);
 
-    private:
-        bool ParseSafetensorsHeader(const std::string& model_path);
+   private:
+    bool ParseSafetensorsHeader(const std::string& model_path);
 
-        bool ParseConfig(const std::string& model_path, json& config);
+    bool ParseConfig(const std::string& model_path, json& config);
 
-        bool LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor& weight);
+    bool LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor& weight);
 
-        Embedding::Ptr embedding_;
+    Embedding::Ptr embedding_;
 
-        std::vector<Decoder::Ptr> decoders_;
+    std::vector<Decoder::Ptr> decoders_;
 
-        std::shared_ptr<RMSNorm> final_norms_;
+    std::shared_ptr<RMSNorm> final_norms_;
 
-        std::shared_ptr<LinearProjection> lm_head_;
+    std::shared_ptr<LinearProjection> lm_head_;
 
-        std::shared_ptr<SoftMax> softmax_;
+    std::shared_ptr<SoftMax> softmax_;
 
-        std::map<std::string, HeaderInfo> headers_;
+    std::map<std::string, HeaderInfo> headers_;
 
-        size_t data_offset_;
+    size_t data_offset_;
 };

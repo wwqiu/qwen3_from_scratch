@@ -1,11 +1,11 @@
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
-#include <fstream>
-#include "nlohmann/json.hpp"
-#include "tokenizer.h"
-#include "qwen3_model.h"
 
+#include "nlohmann/json.hpp"
+#include "qwen3_model.h"
+#include "tokenizer.h"
 
 void PrintTokenIds(const std::vector<uint32_t>& ids) {
     std::cout << "Token IDs: [";
@@ -50,11 +50,7 @@ int main(int argc, char* argv[]) {
     tokenizer.LoadConfig(tokenizer_path);
 
     // Test tokenization
-    std::vector<std::string> test_strings = {
-        "hello ",
-        "1+1=",
-        "广州最出名的地标是广州"
-    };
+    std::vector<std::string> test_strings = {"hello ", "1+1=", "广州最出名的地标是广州"};
 
     std::cout << "\n--- Tokenization Test ---" << std::endl;
 
@@ -64,13 +60,13 @@ int main(int argc, char* argv[]) {
         std::cout << "Input: " << input << std::endl;
 
         std::vector<uint32_t> ids = tokenizer.Encode(input);
-        
+
         model.ClearCache();
 
         Tensor tensor = model.Forward(ids);
 
         PrintTokenIds(ids);
-        
+
         uint32_t sampled_token = sampler.Sample(tensor);
         std::cout << "Sampled Token ID: " << sampled_token << std::endl;
         std::cout << "Sampled Token Text: " << tokenizer.Decode({sampled_token}) << std::endl;
@@ -78,4 +74,3 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
-

@@ -1,9 +1,11 @@
 #include "qwen3_model.h"
-#include <iostream>
-#include <fstream>
+
 #include <algorithm>
-#include "nlohmann/json.hpp"
+#include <fstream>
+#include <iostream>
+
 #include "logger.h"
+#include "nlohmann/json.hpp"
 
 using json = nlohmann::json;
 
@@ -38,7 +40,7 @@ Tensor Qwen3Model::Forward(const std::vector<uint32_t>& token_ids, size_t positi
     // lm_head logits: [seq_len, vocab_size]
     Tensor logits = lm_head_->Forward(hidden_state);
     // softmax keeps shape: [seq_len, vocab_size]
-    softmax_->Forward(logits);    
+    softmax_->Forward(logits);
 
     return logits;
 }
@@ -72,18 +74,21 @@ bool Qwen3Model::Load(const std::string& model_path) {
     for (size_t i = 0; i < num_hidden; ++i) {
         LOG_INFO("Loading decoder layer %zu", i);
         std::string layer_prefix = "model.layers." + std::to_string(i);
-        Decoder::Ptr decoder = std::make_shared<Decoder>(hidden_dim, num_kv_heads, num_heads, head_dim, intermediate_size);
+        Decoder::Ptr decoder =
+            std::make_shared<Decoder>(hidden_dim, num_kv_heads, num_heads, head_dim, intermediate_size);
         // input norm
         LoadWeight(file, headers_[layer_prefix + ".input_layernorm.weight"], decoder->input_norm_->weight_);
         // attention
         LoadWeight(file, headers_[layer_prefix + ".self_attn.q_proj.weight"], decoder->attention_->q_proj_->weight_);
         LoadWeight(file, headers_[layer_prefix + ".self_attn.k_proj.weight"], decoder->attention_->k_proj_->weight_);
         LoadWeight(file, headers_[layer_prefix + ".self_attn.v_proj.weight"], decoder->attention_->v_proj_->weight_);
-        LoadWeight(file, headers_[layer_prefix + ".self_attn.o_proj.weight"], decoder->attention_->output_proj_->weight_);
+        LoadWeight(file, headers_[layer_prefix + ".self_attn.o_proj.weight"],
+                   decoder->attention_->output_proj_->weight_);
         LoadWeight(file, headers_[layer_prefix + ".self_attn.q_norm.weight"], decoder->attention_->q_norm_->weight_);
         LoadWeight(file, headers_[layer_prefix + ".self_attn.k_norm.weight"], decoder->attention_->k_norm_->weight_);
         // post attention norm
-        LoadWeight(file, headers_[layer_prefix + ".post_attention_layernorm.weight"], decoder->post_attention_norm_->weight_);
+        LoadWeight(file, headers_[layer_prefix + ".post_attention_layernorm.weight"],
+                   decoder->post_attention_norm_->weight_);
         // mlp
         LoadWeight(file, headers_[layer_prefix + ".mlp.down_proj.weight"], decoder->mlp_->down_proj_->weight_);
         LoadWeight(file, headers_[layer_prefix + ".mlp.gate_proj.weight"], decoder->mlp_->gate_proj_->weight_);
@@ -98,7 +103,6 @@ bool Qwen3Model::Load(const std::string& model_path) {
 
     return true;
 }
-
 
 bool Qwen3Model::LoadWeight(std::ifstream& file, const HeaderInfo& info, Tensor& weight) {
     const size_t elem_size = 2;  // bf16
@@ -149,8 +153,7 @@ bool Qwen3Model::ParseSafetensorsHeader(const std::string& filepath) {
         for (auto& it : header.items()) {
             if (it.key() == "__metadata__") {
                 LOG_INFO("(Metadata): %s", it.value().dump(2).c_str());
-            }
-            else {
+            } else {
                 std::string tensor_name = it.key();
                 auto info = it.value();
                 std::string dtype = info["dtype"];
@@ -160,8 +163,7 @@ bool Qwen3Model::ParseSafetensorsHeader(const std::string& filepath) {
                 LOG_DEBUG("%s", headers_[tensor_name].ToString().c_str());
             }
         }
-    }
-    catch (const json::parse_error& e) {
+    } catch (const json::parse_error& e) {
         LOG_ERROR("JSON Parse Failed: %s", e.what());
         return false;
     }
@@ -172,6 +174,6 @@ bool Qwen3Model::ParseSafetensorsHeader(const std::string& filepath) {
 bool Qwen3Model::ParseConfig(const std::string& model_path, json& config) {
     config = json::parse(std::ifstream(model_path));
     LOG_INFO("--- Load Model Config Succeeded ---");
-    //LOG_INFO("%s", config.dump(2).c_str());
+    // LOG_INFO("%s", config.dump(2).c_str());
     return true;
 }

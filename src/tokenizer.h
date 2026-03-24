@@ -1,9 +1,10 @@
 #pragma once
 #include <map>
 #include <string>
-#include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
+
 #include "nlohmann/json.hpp"
 
 struct AddedToken {
@@ -27,7 +28,7 @@ struct TokenizerConfig {
 };
 
 class Tokenizer {
-public:
+   public:
     Tokenizer() = default;
 
     void LoadConfig(const std::string& config_file);
@@ -35,7 +36,7 @@ public:
 
     std::string Decode(const std::vector<uint32_t>& token_ids);
 
-private:
+   private:
     TokenizerConfig config_;
     std::unordered_map<uint32_t, std::string> id_to_token_;
     std::unordered_set<uint32_t> special_token_ids_;

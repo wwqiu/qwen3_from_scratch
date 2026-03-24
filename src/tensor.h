@@ -1,11 +1,11 @@
 #pragma once
 
 class Tensor {
-public:
+   public:
     Tensor() : data_(nullptr) {}
     ~Tensor() {}
 
-    Tensor (std::vector<size_t> shape, size_t elem_size) : shape_{shape}, elem_size_(elem_size) {
+    Tensor(std::vector<size_t> shape, size_t elem_size) : shape_{shape}, elem_size_(elem_size) {
         size_t total_size = elem_size;
         for (size_t dim : shape_) {
             total_size *= dim;
@@ -16,14 +16,15 @@ public:
         }
     }
 
-    Tensor (size_t n, size_t c, size_t h, size_t w, size_t elem_size) : shape_{n, c, h, w}, elem_size_(elem_size) {
+    Tensor(size_t n, size_t c, size_t h, size_t w, size_t elem_size) : shape_{n, c, h, w}, elem_size_(elem_size) {
         data_ = std::shared_ptr<uint8_t[]>(new uint8_t[n * c * h * w * elem_size]);
     }
 
     Tensor(const Tensor&) = default;
     Tensor& operator=(const Tensor&) = default;
 
-    Tensor(Tensor&& other) noexcept : shape_(std::move(other.shape_)), data_(other.data_), elem_size_(other.elem_size_) {
+    Tensor(Tensor&& other) noexcept
+        : shape_(std::move(other.shape_)), data_(other.data_), elem_size_(other.elem_size_) {
         other.data_ = nullptr;
     }
 
@@ -47,13 +48,13 @@ public:
         return copy;
     }
 
-    template<typename T>
+    template <typename T>
     T* data() {
         return reinterpret_cast<T*>(data_.get());
     }
-    
+
     const std::vector<size_t>& shape() const { return shape_; }
-    
+
     size_t elem_size() const { return elem_size_; }
 
     friend Tensor operator+(Tensor& a, Tensor& b) {
@@ -75,7 +76,7 @@ public:
         return result;
     }
 
-private:
+   private:
     std::vector<size_t> shape_;
     std::shared_ptr<uint8_t[]> data_;
     size_t elem_size_;

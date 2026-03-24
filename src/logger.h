@@ -6,7 +6,7 @@
 #define LOG_LEVEL_INFO 2
 #define LOG_LEVEL_DEBUG 3
 
-#define LOG_INFO(fmt, ...)  LOGF(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...) LOGF(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
 #define LOG_DEBUG(fmt, ...) LOGF(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
 #define LOG_ERROR(fmt, ...) LOGF(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
 

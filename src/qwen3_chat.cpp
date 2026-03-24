@@ -11,7 +11,8 @@ struct ChatMessage {
     std::string content;
 };
 
-static std::string BuildPrompt(const std::vector<ChatMessage>& messages, bool add_generation_prompt, bool enable_think = false) {
+static std::string BuildPrompt(const std::vector<ChatMessage>& messages, bool add_generation_prompt,
+                               bool enable_think = false) {
     std::string prompt;
     for (const auto& msg : messages) {
         prompt += "<|im_start|>" + msg.role + "\n";
@@ -28,19 +29,15 @@ static std::string BuildPrompt(const std::vector<ChatMessage>& messages, bool ad
     return prompt;
 }
 
-static bool EndsWithTokenSequence(const std::vector<uint32_t>& generated,
-                                  const std::vector<uint32_t>& suffix) {
+static bool EndsWithTokenSequence(const std::vector<uint32_t>& generated, const std::vector<uint32_t>& suffix) {
     if (suffix.empty() || generated.size() < suffix.size()) {
         return false;
     }
     return std::equal(suffix.rbegin(), suffix.rend(), generated.rbegin());
 }
 
-static std::string GenerateReply(Qwen3Model& model,
-                                 Tokenizer& tokenizer,
-                                 const std::vector<ChatMessage>& messages,
-                                 size_t max_new_tokens,
-                                 const std::vector<uint32_t>& im_end_ids,
+static std::string GenerateReply(Qwen3Model& model, Tokenizer& tokenizer, const std::vector<ChatMessage>& messages,
+                                 size_t max_new_tokens, const std::vector<uint32_t>& im_end_ids,
                                  bool enable_think = false) {
     const std::string prompt = BuildPrompt(messages, true, enable_think);
     // std::cout << prompt << std::endl;
@@ -112,9 +109,7 @@ int main(int argc, char* argv[]) {
     Tokenizer tokenizer;
     tokenizer.LoadConfig(tokenizer_path);
 
-    std::vector<ChatMessage> messages = {
-        {"system", "You are a helpful assistant."}
-    };
+    std::vector<ChatMessage> messages = {{"system", "You are a helpful assistant."}};
 
     const std::vector<uint32_t> im_end_ids = tokenizer.Encode("<|im_end|>");
 
