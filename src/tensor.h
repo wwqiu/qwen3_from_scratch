@@ -1,4 +1,25 @@
 #pragma once
+/*
+ * ============================================================================
+ * Tensor - 多维张量基础类
+ * ============================================================================
+ *
+ * 目录：
+ *   1. 构造 / 析构
+ *      - Tensor(shape, elem_size)   - 按 shape 分配内存
+ *      - Tensor(n, c, h, w, ...)    - 4D 快捷构造
+ *      - clone()                    - 深拷贝
+ *      - Tensor(const Tensor&)      - 拷贝构造（共享底层数据）
+ *      - operator=(const Tensor&)   - 拷贝赋值
+ *      - Tensor(Tensor&&)           - 移动构造
+ *      - operator=(Tensor&&)        - 移动赋值
+ *   2. 数据访问
+ *      - data<T>()                  - 返回类型化裸指针
+ *      - shape()                    - 返回维度列表
+ *      - elem_size()                - 返回单元素字节数
+ *   3. 运算符重载
+ *      - operator+                  - 逐元素加法（相同 shape）
+ */
 
 class Tensor {
    public:

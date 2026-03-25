@@ -40,7 +40,7 @@ Tensor Qwen3Model::Forward(const std::vector<uint32_t>& token_ids, size_t positi
     // lm_head logits: [seq_len, vocab_size]
     Tensor logits = lm_head_->Forward(hidden_state);
     // softmax keeps shape: [seq_len, vocab_size]
-    softmax_->Forward(logits);
+    SoftMax::Forward(logits);
 
     return logits;
 }
@@ -98,8 +98,6 @@ bool Qwen3Model::Load(const std::string& model_path) {
 
     final_norms_ = std::make_shared<RMSNorm>(hidden_dim);
     LoadWeight(file, headers_["model.norm.weight"], final_norms_->weight_);
-
-    softmax_ = std::make_shared<SoftMax>();
 
     return true;
 }
@@ -160,7 +158,6 @@ bool Qwen3Model::ParseSafetensorsHeader(const std::string& filepath) {
                 std::vector<size_t> shape = info["shape"];
                 std::vector<uint64_t> offsets = info["data_offsets"];
                 headers_[tensor_name] = {tensor_name, dtype, shape, offsets};
-                LOG_DEBUG("%s", headers_[tensor_name].ToString().c_str());
             }
         }
     } catch (const json::parse_error& e) {

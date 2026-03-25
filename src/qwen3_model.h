@@ -1,4 +1,25 @@
 #pragma once
+/*
+ * ============================================================================
+ * Qwen3Model - 模型加载与推理
+ * ============================================================================
+ *
+ * 目录：
+ *   1. HeaderInfo        - safetensors 权重元信息（name / dtype / shape / offsets）
+ *   2. Qwen3Model        - 主模型类
+ *      - Load            - 加载 safetensors 模型文件与配置
+ *      - Forward         - 前向推理：token IDs → logits Tensor
+ *      - ClearCache      - 清空所有 Decoder 的 KV Cache
+ *      - ParseSafetensorsHeader - 解析权重文件头
+ *      - ParseConfig     - 解析 config.json 模型配置
+ *      - LoadWeight      - 从文件读取单个权重张量
+ *   3. 模型组件（私有成员）
+ *      - embedding_      - 词嵌入层
+ *      - decoders_       - Transformer 解码层列表
+ *      - final_norms_    - 最终 RMSNorm
+ *      - lm_head_        - 语言模型输出投影
+ *      - softmax_        - Softmax
+ */
 
 #include <string>
 
@@ -12,22 +33,6 @@ struct HeaderInfo {
     std::string dtype;
     std::vector<size_t> shape;
     std::vector<uint64_t> data_offsets;
-
-    std::string ToString() const {
-        std::string shape_str = "[";
-        for (size_t i = 0; i < shape.size(); ++i) {
-            shape_str += std::to_string(shape[i]);
-            if (i < shape.size() - 1) shape_str += ", ";
-        }
-        shape_str += "]";
-        std::string offsets_str = "[";
-        for (size_t i = 0; i < data_offsets.size(); ++i) {
-            offsets_str += std::to_string(data_offsets[i]);
-            if (i < data_offsets.size() - 1) offsets_str += ", ";
-        }
-        offsets_str += "]";
-        return "Tensor: " + name + " | dtype: " + dtype + " | shape: " + shape_str + " | data_offsets: " + offsets_str;
-    }
 };
 
 class Qwen3Model {
@@ -59,8 +64,6 @@ class Qwen3Model {
     std::shared_ptr<RMSNorm> final_norms_;
 
     std::shared_ptr<LinearProjection> lm_head_;
-
-    std::shared_ptr<SoftMax> softmax_;
 
     std::map<std::string, HeaderInfo> headers_;
 

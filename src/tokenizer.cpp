@@ -109,7 +109,7 @@ void Tokenizer::LoadConfig(const std::string& config_file) {
         //     .at("pretokenizers").at(0)
         //     .at("pattern")
         //     .at("Regex").get<std::wstring>();
-
+        
         config_.pre_tokenizer_pattern =
             L"(?i:'s|'t|'re|'ve|'m|'ll|'d)|"
             L"[^\\r\\n[:alpha:][:digit:]]?[[:alpha:]]+|"
@@ -143,6 +143,37 @@ std::vector<std::wstring> Tokenizer::PreTokenize(const std::wstring& wtext) {
     return tokens;
 }
 
+/**
+ * @brief BPE Tokenization with byte-level encoding
+ *
+ *     utf8_word
+ *        │
+ *        ↓
+ *   byte_encoder (map each byte)
+ *        │
+ *        ↓
+ *   word_parts = [char1, char2, ...]
+ *        │
+ *        ↓
+ *   direct vocab lookup? ──Yes──→ return token_id
+ *        │
+ *       No
+ *        ↓
+ *   BPE merge loop:
+ *     find best pair (min rank)
+ *        │
+ *        ↓
+ *     merge pair → update word_parts
+ *        │
+ *        ↓
+ *   repeat until no more merges
+ *        │
+ *        ↓
+ *   convert parts to token IDs
+ *        │
+ *        ↓
+ *     return tokens
+ */
 void Tokenizer::BPETokenize(const std::string& utf8_word, std::vector<uint32_t>& tokens) {
     if (utf8_word.empty()) return;
 
@@ -205,6 +236,35 @@ void Tokenizer::BPETokenize(const std::string& utf8_word, std::vector<uint32_t>&
     }
 }
 
+/**
+ * @brief Encode normal (non-special) text into token IDs
+ *
+ *     text (UTF-8)
+ *        │
+ *        ↓
+ *   UTF8ToWide (str → wstring)
+ *        │
+ *        ↓
+ *   PreTokenize (regex split)
+ *        │
+ *        ↓ pre_tokens = ["Hello", " world", ...]
+ *        │
+ *   ┌────┘
+ *   │  for each pre_token:
+ *   │     │
+ *   │     ↓
+ *   │  WideToUTF8
+ *   │     │
+ *   │     ↓
+ *   │  BPETokenize
+ *   │     │
+ *   │     ↓
+ *   │  append to ids
+ *   └────→ (next token)
+ *        │
+ *        ↓
+ *      ids (in-place)
+ */
 void Tokenizer::EncodeNormalText(const std::string& text, std::vector<uint32_t>& ids) {
     if (text.empty()) return;
     std::wstring wtext = UTF8ToWide(text);
@@ -216,6 +276,31 @@ void Tokenizer::EncodeNormalText(const std::string& text, std::vector<uint32_t>&
     }
 }
 
+/**
+ * @brief Encode text (including special tokens) into token IDs
+ *
+ *     text
+ *      │
+ *      ↓
+ *   scan char by char (pos)
+ *      │
+ *      ├── match special token? ──Yes──→ EncodeNormalText(buffer)
+ *      │                                        │
+ *      │                                        ↓
+ *      │                                  emit special token ID
+ *      │                                        │
+ *      │                                  clear buffer, advance pos
+ *      │
+ *      └── no match ──→ append char to normal_buffer
+ *                              │
+ *                         (continue scan)
+ *      │
+ *      ↓ (end of text)
+ *   EncodeNormalText(remaining buffer)
+ *      │
+ *      ↓
+ *   return ids
+ */
 std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
     std::vector<uint32_t> ids;
     std::string normal_buffer;
@@ -296,6 +381,32 @@ std::string Tokenizer::DecodeByteLevelText(const std::string& byte_level_text) {
     return raw_bytes_text;
 }
 
+/**
+ * @brief Decode token IDs back to UTF-8 text
+ *
+ *   token_ids = [id1, id2, id3, ...]
+ *        │
+ *   ┌────┘
+ *   │  for each id:
+ *   │     │
+ *   │     ├── special token? ──Yes──→ DecodeByteLevelText(buffer)
+ *   │     │                                  │
+ *   │     │                            append to output
+ *   │     │                                  │
+ *   │     │                          append special token str
+ *   │     │                                  │
+ *   │     │                            clear byte_level_text
+ *   │     │
+ *   │     └── normal token ──→ accumulate into byte_level_text
+ *   │
+ *   └────→ (next id)
+ *        │
+ *        ↓
+ *   DecodeByteLevelText(remaining buffer)
+ *        │
+ *        ↓
+ *   return output (UTF-8 string)
+ */
 std::string Tokenizer::Decode(const std::vector<uint32_t>& token_ids) {
     std::string output;
     std::string byte_level_text;

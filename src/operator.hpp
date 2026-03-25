@@ -12,10 +12,10 @@
  *   1. Embedding        - 词嵌入查表
  *   2. RMSNorm          - RMS 归一化
  *   3. LinearProjection - 线性投影（矩阵乘法）
- *   4. Attention        - 多头注意力（含 RoPE 与因果掩码）
- *   5. MLP              - 前馈网络（SwiGLU）
- *   6. Decoder          - Transformer 解码层
- *   7. SoftMax          - Softmax 激活
+ *   4. SoftMax          - Softmax 激活
+ *   5. Attention        - 多头注意力（含 RoPE 与因果掩码）
+ *   6. MLP              - 前馈网络（SwiGLU）
+ *   7. Decoder          - Transformer 解码层
  *   8. Sampler          - 贪心采样
  */
 
@@ -165,7 +165,32 @@ class LinearProjection {
 };
 
 // ============================================================================
-// 4) Attention
+// 4) SoftMax
+// ============================================================================
+class SoftMax {
+   public:
+    // Softmax(x_i) = exp(x_i - max(x)) / sum_j exp(x_j - max(x))
+    static void Forward(Tensor& input) {
+        size_t seq_len = input.shape()[0];
+        size_t dim = input.shape()[1];
+        for (size_t i = 0; i < seq_len; ++i) {
+            float* row_ptr = input.data<float>() + i * dim;
+            float max_val = *std::max_element(row_ptr, row_ptr + dim);
+            float sum = 0.0f;
+            for (size_t j = 0; j < dim; ++j) {
+                row_ptr[j] = std::exp(row_ptr[j] - max_val);
+                sum += row_ptr[j];
+            }
+            for (size_t j = 0; j < dim; ++j) {
+                row_ptr[j] /= sum;
+            }
+        }
+    }
+};
+
+
+// ============================================================================
+// 5) Attention
 // ============================================================================
 struct KVCache {
     Tensor k_cache;  // [max_seq_len, num_kv_heads * head_dim]
@@ -190,6 +215,7 @@ struct KVCache {
     }
     bool IsEmpty() const { return cached_len == 0; }
 };
+
 
 class Attention {
    public:
@@ -331,16 +357,16 @@ class Attention {
         size_t seq_len = q.shape()[0];
         float scale = 1.0f / std::sqrt((float)head_dim_);
         Tensor output({seq_len, num_heads_ * head_dim_}, sizeof(float));
-
+        Tensor attention_scores({1, position + seq_len}, sizeof(float)); 
         for (size_t h = 0; h < num_heads_; ++h) {
             size_t kv_h = h / (num_heads_ / num_kv_heads_);
             for (size_t i = 0; i < seq_len; ++i) {
                 // score = Q * K^T
-                std::vector<float> attention_scores(position + seq_len);
+                float* attention_scores_data = attention_scores.data<float>();
                 for (size_t j = 0; j < position + seq_len; ++j) {
                     // causal mask is applied here by setting attention scores to -inf for j > i
                     if (j > i + position) {
-                        attention_scores[j] = -1e9;
+                        attention_scores_data[j] = -1e9;
                         continue;
                     }
                     float dot = 0.0f;
@@ -350,16 +376,16 @@ class Attention {
                     for (int d = 0; d < head_dim_; ++d) {
                         dot += q_ptr[d] * k_ptr[d];
                     }
-                    attention_scores[j] = dot * scale;
+                    attention_scores_data[j] = dot * scale;
                 }
 
-                SoftMax(attention_scores.data(), position + seq_len);
+                SoftMax::Forward(attention_scores);
 
                 // weighted sum: output = sum(attention_scores * V)
                 float* out_ptr = output.data<float>() + (i * num_heads_ + h) * head_dim_;
                 memset(out_ptr, 0, head_dim_ * sizeof(float));
                 for (size_t j = 0; j < position + seq_len; ++j) {
-                    float weight = attention_scores[j];
+                    float weight = attention_scores_data[j];
                     float* v_ptr = v.data<float>() + (j * num_kv_heads_ + kv_h) * head_dim_;
                     for (int d = 0; d < head_dim_; ++d) {
                         out_ptr[d] += weight * v_ptr[d];
@@ -368,19 +394,6 @@ class Attention {
             }
         }
         return output;
-    }
-
-    // Softmax(x_i) = exp(x_i - max(x)) / sum_j exp(x_j - max(x))
-    void SoftMax(float* data, size_t len) {
-        float max_val = *std::max_element(data, data + len);
-        float sum = 0.0f;
-        for (size_t i = 0; i < len; ++i) {
-            data[i] = std::exp(data[i] - max_val);
-            sum += data[i];
-        }
-        for (size_t i = 0; i < len; ++i) {
-            data[i] /= sum;
-        }
     }
 
     size_t hidden_dim_;
@@ -406,7 +419,7 @@ class Attention {
 };
 
 // ============================================================================
-// 5) MLP (SwiGLU)
+// 6) MLP (SwiGLU)
 // ============================================================================
 class MLP {
    public:
@@ -462,7 +475,7 @@ class MLP {
 };
 
 // ============================================================================
-// 6) Decoder
+// 7) Decoder
 // ============================================================================
 class Decoder {
    public:
@@ -532,30 +545,6 @@ class Decoder {
     size_t num_kv_heads_;
     size_t head_dim_;
     size_t intermediate_size_;
-};
-
-// ============================================================================
-// 7) SoftMax
-// ============================================================================
-class SoftMax {
-   public:
-    // Softmax(x_i) = exp(x_i - max(x)) / sum_j exp(x_j - max(x))
-    void Forward(Tensor& input) {
-        size_t seq_len = input.shape()[0];
-        size_t dim = input.shape()[1];
-        for (size_t i = 0; i < seq_len; ++i) {
-            float* row_ptr = input.data<float>() + i * dim;
-            float max_val = *std::max_element(row_ptr, row_ptr + dim);
-            float sum = 0.0f;
-            for (size_t j = 0; j < dim; ++j) {
-                row_ptr[j] = std::exp(row_ptr[j] - max_val);
-                sum += row_ptr[j];
-            }
-            for (size_t j = 0; j < dim; ++j) {
-                row_ptr[j] /= sum;
-            }
-        }
-    }
 };
 
 // ============================================================================

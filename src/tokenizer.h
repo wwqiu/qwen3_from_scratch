@@ -1,4 +1,22 @@
 #pragma once
+/*
+ * ============================================================================
+ * Qwen3 Tokenizer 实现
+ * ============================================================================
+ *
+ * 目录：
+ *   1. AddedToken        - 特殊 token 结构体（id / content / special）
+ *   2. TokenizerConfig   - 配置数据（vocab / merges / bpe_ranks / byte_encoder）
+ *   3. Tokenizer         - 主类
+ *      - LoadConfig      - 从 JSON 文件加载词表与合并规则
+ *      - Encode          - 文本 → token ID 列表（处理特殊 token）
+ *      - Decode          - token ID 列表 → 文本
+ *      - PreTokenize     - 正则预切分（wstring）
+ *      - EncodeNormalText - 普通文本编码（UTF-8 → BPE）
+ *      - BPETokenize     - 单词级 BPE 编码（含 byte-level 映射）
+ *      - DecodeByteLevelText - byte-level 字符串还原为 UTF-8
+ *   4. Utilities         - WideToUTF8 / UTF8ToWide / CreateByteToUnicodeMap
+ */
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -6,6 +24,7 @@
 #include <vector>
 
 #include "nlohmann/json.hpp"
+
 
 struct AddedToken {
     int id;
